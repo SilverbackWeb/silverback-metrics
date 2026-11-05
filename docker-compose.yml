@@ -1,4 +1,4 @@
-# Production-ish local stack. On the VPS, Coolify can deploy this file directly.
+# Optional local Postgres for development. Production uses Vercel + Neon.
 services:
   db:
     image: postgres:16
@@ -9,13 +9,5 @@ services:
       POSTGRES_DB: metrics
     volumes: [pgdata:/var/lib/postgresql/data]
     ports: ["5432:5432"]
-  app:
-    build: .
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      DATABASE_URL: postgres://metrics:metrics@db:5432/metrics
-    depends_on: [db]
-    ports: ["3000:3000"]
 volumes:
   pgdata:

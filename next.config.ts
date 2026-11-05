@@ -1,6 +1,5 @@
 import type { NextConfig } from "next";
 const config: NextConfig = {
-  output: "standalone",
   async headers() {
     return [{ source: "/t.js", headers: [{ key: "Cache-Control", value: "public, max-age=3600" }, { key: "Access-Control-Allow-Origin", value: "*" }] }];
   },

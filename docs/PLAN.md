@@ -1,6 +1,6 @@
 # Silverback Metrics: Architecture and Build Plan
 
-A self-hosted, multi-client lead tracking and reporting dashboard. Think "WhatConverts, but ours": one line of code on a client site, a few connected Google accounts, and the client logs in to see every lead, where it came from, and what it was worth.
+A Silverback-owned, multi-client lead tracking and reporting dashboard. Think "WhatConverts, but ours": one line of code on a client site, a few connected Google accounts, and the client logs in to see every lead, where it came from, and what it was worth.
 
 ---
 
@@ -39,8 +39,8 @@ Every lead (form fill or phone call) gets stored with its full source story: the
    CallRail / GHL / Twilio (phase 3) ─────(3) call webhooks───────────▶│  Silverback Metrics │
                                                                          │  Next.js app + API  │
    Google Ads API ◀──┐                                                   │  Postgres           │
-   GA4 Data API   ◀──┤                                                   │  Worker (pg-boss)   │
-   Search Console ◀──┼──── (4) nightly sync jobs (worker) ───────────────│                     │
+   GA4 Data API   ◀──┤                                                   │  Vercel Cron jobs   │
+   Search Console ◀──┼──── (4) nightly sync jobs (cron) ─────────────────│                     │
    GBP Performance◀──┤                                                   └──────────┬──────────┘
    DataForSEO     ◀──┘                                                              │
                                                                                     ▼
@@ -57,16 +57,18 @@ Every lead (form fill or phone call) gets stored with its full source story: the
 | Piece | Pick | Why |
 |---|---|---|
 | App + API | **Next.js (App Router) + TypeScript** | One codebase for the dashboard, the tracking endpoints and the webhooks. Huge ecosystem, easy to hire for. |
-| Database | **PostgreSQL 16** | Relational data (clients, sites, leads) plus JSONB for raw payloads. One database to back up. |
+| Database | **Postgres on Neon, connected through Vercel Storage** | Same setup as the Silverback Scorecard, which has worked well. Relational data plus JSONB for raw payloads, with automatic backups and branching. |
 | ORM | **Drizzle** | Typed SQL, lightweight, plain migrations. |
 | Auth | **Auth.js (NextAuth)** with email magic links + Google sign-in for staff | Clients just get a login link; no password resets to support. |
-| Background jobs | **pg-boss** (job queue inside Postgres) | Nightly API syncs and heat map scans without adding Redis. |
+| Background jobs | **Vercel Cron** plus a small jobs table in Postgres | Nightly API syncs, same as the Scorecard's YouTube snapshot. Each cron run works through a batch of clients so no single run hits the function time limit. DataForSEO heat maps use its standard queue with a postback URL, so we never wait on it. |
 | Charts / UI | **Tailwind + shadcn/ui + Recharts**, **Leaflet** for heat maps | Clean, brandable, fast to build. |
 | Email | **Resend** or Postmark | New lead alerts, weekly client summaries. |
-| Hosting | **One VPS (Hetzner or DigitalOcean, ~$12 to $24/mo) with Docker Compose**, ideally managed by **Coolify** | "Self-hosted" without babysitting servers. Coolify gives one-click deploys from GitHub, SSL and backups. |
+| Hosting | **Vercel** (same as the Scorecard) | Deploys automatically from GitHub, SSL and custom domain included, nothing to maintain. Use the **Pro plan (~$20/mo)**, because Hobby is for non-commercial use and this is client-facing. |
 | Domain | `metrics.silverbackweb.com` for the app, optionally `t.silverbackweb.com` for tracking | White-labeled for clients. |
 
-Ballpark running cost for MVP: the VPS plus DataForSEO usage. Google APIs are free.
+Ballpark running cost for MVP: Vercel Pro (~$20/mo), Neon (free tier to start, ~$19/mo once tracking events pass the free storage limit), plus DataForSEO usage. Google APIs are free.
+
+**Watch-outs on Vercel:** every pageview beacon is a function call, which is fine at our volume but worth watching on the Vercel usage page. Raw pageview events are pruned after 13 months (leads are kept), which keeps the database small. Postgres connections use a small pool, the same pattern as the Scorecard's `lib/db.ts`.
 
 ## 5. The tracking snippet (the "WhatConverts" part)
 
@@ -267,7 +269,7 @@ Defined in [`src/db/schema.ts`](../src/db/schema.ts):
 - Agency login, client logins, client and site setup pages.
 - Lead inbox and Overview page (leads by channel, source, campaign, landing page).
 - Lead status and value editing.
-- Deployed on the VPS, tested on 2 to 3 friendly client sites.
+- Deployed on Vercel with Neon, tested on 2 to 3 friendly client sites.
 
 **Done when:** a team member can set up a new site with the checklist in under 30 minutes and the client sees attributed leads the same day.
 
@@ -298,7 +300,7 @@ Defined in [`src/db/schema.ts`](../src/db/schema.ts):
 1. Apply for a **Google Ads API developer token** from the Silverback MCC.
 2. Request **Business Profile API** access in Google Cloud.
 3. Create a Google Cloud **service account** for GA4 and Search Console.
-4. Decide the app domain (for example `metrics.silverbackweb.com`) and pick the VPS.
+4. Decide the app domain (for example `metrics.silverbackweb.com`) and create the Vercel project and Neon database (same steps as the Scorecard README).
 
 ## 16. Decisions from Mike
 
@@ -307,5 +309,7 @@ Defined in [`src/db/schema.ts`](../src/db/schema.ts):
 **Decided:** clients can edit their own leads (status, lead value, sale amount). Every change is logged with who made it and when, and the team can still override.
 
 **Decided:** call tracking ingests what clients already use (CallRail or GoHighLevel) first; our own Twilio numbers are the fallback.
+
+**Decided:** use the same setup as the Silverback Scorecard: **Vercel** hosting with **Postgres on Neon** through Vercel Storage, and Vercel Cron for nightly syncs. (Replaces the earlier VPS + Coolify idea.)
 
 **Decided:** heat maps and rank checks run **monthly** by default (7x7 grid, 5 mile radius), adjustable per client. Budget is roughly grid points x keywords per client per month.

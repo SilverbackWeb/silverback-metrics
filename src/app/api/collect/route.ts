@@ -55,7 +55,7 @@ export async function POST(req: Request) {
     .where(eq(schema.sites.id, site.id));
 
   // TODO(phase 1): form_submit backups become leads after a delay if no webhook lead
-  // arrives for the same visitor (dedupe window ~2 minutes). Handled by a pg-boss job.
+  // arrives for the same visitor (dedupe window ~2 minutes). Handled by a Vercel Cron job.
 
   return noContent();
 }

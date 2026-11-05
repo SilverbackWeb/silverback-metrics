@@ -1,6 +1,6 @@
 # Silverback Metrics
 
-Self-hosted lead tracking and client reporting for Silverback Web clients. One snippet on the site, an Elementor webhook on each form, and clients log in to see every lead, where it came from, and what it was worth.
+Silverback-owned lead tracking and client reporting for Silverback Web clients. One snippet on the site, an Elementor webhook on each form, and clients log in to see every lead, where it came from, and what it was worth.
 
 - **Plan:** [docs/PLAN.md](docs/PLAN.md)
 - **Team setup checklist:** [docs/ONBOARDING.md](docs/ONBOARDING.md)
@@ -18,9 +18,12 @@ Self-hosted lead tracking and client reporting for Silverback Web clients. One s
 
 ## Run locally
 
+Production runs on **Vercel** with **Postgres on Neon** (Vercel → Storage → Create Database → Postgres), the same setup as the Silverback Scorecard.
+
+Local development:
+
 ```bash
-cp .env.example .env
-docker compose up -d db
+cp .env.example .env      # paste a Neon dev-branch DATABASE_URL, or run `docker compose up -d db`
 npm install
 npm run db:generate && npm run db:migrate
 npm run dev
