@@ -1,9 +1,19 @@
-import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-http";
 import * as schema from "./schema";
 
-// Small pool per serverless instance (Vercel + Neon), same pattern as the Scorecard.
-const g = globalThis as unknown as { _pool?: Pool };
-const pool = (g._pool ??= new Pool({ connectionString: process.env.DATABASE_URL || process.env.POSTGRES_URL, max: 3 }));
-export const db = drizzle(pool, { schema });
+// Neon's HTTP driver: no connection pool to manage, works inside Cloudflare Workers.
+// The client is created lazily so the env var is read at request time.
+let _db: ReturnType<typeof make> | undefined;
+function make() {
+  const url = process.env.DATABASE_URL;
+  if (!url) throw new Error("DATABASE_URL is not set (Neon connection string).");
+  return drizzle(neon(url), { schema });
+}
+export const db = new Proxy({} as ReturnType<typeof make>, {
+  get(_t, prop) {
+    _db ??= make();
+    return Reflect.get(_db, prop, _db);
+  },
+});
 export { schema };

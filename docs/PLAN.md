@@ -39,7 +39,7 @@ Every lead (form fill or phone call) gets stored with its full source story: the
    CallRail / GHL / Twilio (phase 3) ─────(3) call webhooks───────────▶│  Silverback Metrics │
                                                                          │  Next.js app + API  │
    Google Ads API ◀──┐                                                   │  Postgres           │
-   GA4 Data API   ◀──┤                                                   │  Vercel Cron jobs   │
+   GA4 Data API   ◀──┤                                                   │  Cloudflare cron    │
    Search Console ◀──┼──── (4) nightly sync jobs (cron) ─────────────────│                     │
    GBP Performance◀──┤                                                   └──────────┬──────────┘
    DataForSEO     ◀──┘                                                              │
@@ -57,18 +57,21 @@ Every lead (form fill or phone call) gets stored with its full source story: the
 | Piece | Pick | Why |
 |---|---|---|
 | App + API | **Next.js (App Router) + TypeScript** | One codebase for the dashboard, the tracking endpoints and the webhooks. Huge ecosystem, easy to hire for. |
-| Database | **Postgres on Neon, connected through Vercel Storage** | Same setup as the Silverback Scorecard, which has worked well. Relational data plus JSONB for raw payloads, with automatic backups and branching. |
+| Database | **Postgres on Neon (free tier)** | Same database as the Silverback Scorecard. Connected with Neon's HTTP driver, which works inside Cloudflare Workers. Relational data plus JSONB for raw payloads, with backups and branching. |
 | ORM | **Drizzle** | Typed SQL, lightweight, plain migrations. |
 | Auth | **Auth.js (NextAuth)** with email magic links + Google sign-in for staff | Clients just get a login link; no password resets to support. |
-| Background jobs | **Vercel Cron** plus a small jobs table in Postgres | Nightly API syncs, same as the Scorecard's YouTube snapshot. Each cron run works through a batch of clients so no single run hits the function time limit. DataForSEO heat maps use its standard queue with a postback URL, so we never wait on it. |
+| Background jobs | **Cloudflare cron triggers** (free) calling `/api/cron/<job>` | Nightly API syncs and monthly heat maps. Each run works through a batch of clients so no single run hits Worker limits. DataForSEO heat maps use its standard queue with a postback URL, so we never wait on it. |
 | Charts / UI | **Tailwind + shadcn/ui + Recharts**, **Leaflet** for heat maps | Clean, brandable, fast to build. |
 | Email | **Resend** or Postmark | New lead alerts, weekly client summaries. |
-| Hosting | **Vercel** (same as the Scorecard) | Deploys automatically from GitHub, SSL and custom domain included, nothing to maintain. Use the **Pro plan (~$20/mo)**, because Hobby is for non-commercial use and this is client-facing. |
+| Hosting | **Cloudflare Workers, free plan**, with Next.js deployed through the OpenNext adapter | Free plan allows commercial use (Vercel's free plan does not). SSL and custom domain included, deploys from GitHub. Upgrade path is Workers Paid at $5/mo. |
 | Domain | `metrics.silverbackweb.com` for the app, optionally `t.silverbackweb.com` for tracking | White-labeled for clients. |
 
-Ballpark running cost for MVP: Vercel Pro (~$20/mo), Neon (free tier to start, ~$19/mo once tracking events pass the free storage limit), plus DataForSEO usage. Google APIs are free.
+Ballpark running cost for MVP: **$0/mo** for hosting and database, plus DataForSEO usage. Google APIs are free.
 
-**Watch-outs on Vercel:** every pageview beacon is a function call, which is fine at our volume but worth watching on the Vercel usage page. To stay small, the app does **not** store every pageview: only arrivals that carry attribution (ads, GBP, search, other sites), phone clicks and form events, plus leads. GA4 remains the source for pageview counts. Older raw events are pruned after 13 months; leads are kept. Postgres connections use a small pool, the same pattern as the Scorecard's `lib/db.ts`.
+**Free-tier limits to watch (check current numbers on Cloudflare's and Neon's pricing pages):**
+
+- Cloudflare Workers free: about 100,000 requests a day, a small CPU budget per request, and a 3 MB (compressed) app size. The scaffold builds to under 1 MB compressed. Every pageview beacon is one request, so if the clients' sites together pass ~100k pageviews a day, move to Workers Paid ($5/mo).
+- Neon free: about 0.5 GB of storage per project, and the database sleeps when idle (first request after a quiet spell is a little slower). To stay small, the app does **not** store every pageview: only arrivals that carry attribution (ads, GBP, search, other sites), phone clicks and form events, plus leads. GA4 remains the source for pageview counts. Older raw events are pruned after 13 months; leads are kept.
 
 ## 5. The tracking snippet (the "WhatConverts" part)
 
@@ -269,7 +272,7 @@ Defined in [`src/db/schema.ts`](../src/db/schema.ts):
 - Agency login, client logins, client and site setup pages.
 - Lead inbox and Overview page (leads by channel, source, campaign, landing page).
 - Lead status and value editing.
-- Deployed on Vercel with Neon, tested on 2 to 3 friendly client sites.
+- Deployed on Cloudflare Workers with Neon, tested on 2 to 3 friendly client sites.
 
 **Done when:** a team member can set up a new site with the checklist in under 30 minutes and the client sees attributed leads the same day.
 
@@ -300,7 +303,7 @@ Defined in [`src/db/schema.ts`](../src/db/schema.ts):
 1. Apply for a **Google Ads API developer token** from the Silverback MCC.
 2. Request **Business Profile API** access in Google Cloud.
 3. Create a Google Cloud **service account** for GA4 and Search Console.
-4. Decide the app domain (for example `metrics.silverbackweb.com`) and create the Vercel project and Neon database (same steps as the Scorecard README).
+4. Decide the app domain (for example `metrics.silverbackweb.com`) create the free Cloudflare account and the Neon project.
 
 ## 16. Decisions from Mike
 
@@ -310,6 +313,6 @@ Defined in [`src/db/schema.ts`](../src/db/schema.ts):
 
 **Decided:** call tracking ingests what clients already use (CallRail or GoHighLevel) first; our own Twilio numbers are the fallback.
 
-**Decided:** use the same setup as the Silverback Scorecard: **Vercel** hosting with **Postgres on Neon** through Vercel Storage, and Vercel Cron for nightly syncs. (Replaces the earlier VPS + Coolify idea.)
+**Decided:** run it **free**: **Cloudflare Workers** (free plan, commercial use allowed) with **Postgres on Neon** (free tier, same database as the Scorecard) and Cloudflare cron triggers for syncs. To fit the free tiers, the app stores attribution visits and leads, not every pageview. (Replaces the earlier VPS and Vercel Pro options.)
 
 **Decided:** heat maps and rank checks run **monthly** by default (7x7 grid, 5 mile radius), adjustable per client. Budget is roughly grid points x keywords per client per month.

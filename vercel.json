@@ -1,6 +1,0 @@
-{
-  "crons": [
-    { "path": "/api/cron/nightly-sync", "schedule": "0 9 * * *" },
-    { "path": "/api/cron/monthly-heatmaps", "schedule": "0 10 1 * *" }
-  ]
-}

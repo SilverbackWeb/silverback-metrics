@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "silverback-metrics",
+  "main": "worker.ts",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+  // Free plan: cron triggers run the nightly syncs and monthly heat maps.
+  "triggers": { "crons": ["0 9 * * *", "0 10 1 * *"] },
+  "observability": { "enabled": true }
+  // Secrets (set with `npx wrangler secret put NAME`): DATABASE_URL, AUTH_SECRET, CRON_SECRET, ...
+}
