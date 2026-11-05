@@ -39,7 +39,11 @@ export async function POST(req: Request) {
     await recordTouch(site.id, b.vid, b.touch, { isFirst: !!b.ft, gaClientId: b.ga });
   }
 
-  await db.insert(schema.events).values({
+  // Keep the database small: a plain pageview (no new touch) is not stored as a row.
+  // GA4 already counts pageviews; we only keep what attribution and lead capture need.
+  const store = b.type !== "pageview" || !!b.touch;
+
+  if (store) await db.insert(schema.events).values({
     siteId: site.id,
     visitorId: b.vid,
     sessionId: b.sid && UUID.test(b.sid) ? b.sid : null,

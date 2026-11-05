@@ -68,7 +68,7 @@ Every lead (form fill or phone call) gets stored with its full source story: the
 
 Ballpark running cost for MVP: Vercel Pro (~$20/mo), Neon (free tier to start, ~$19/mo once tracking events pass the free storage limit), plus DataForSEO usage. Google APIs are free.
 
-**Watch-outs on Vercel:** every pageview beacon is a function call, which is fine at our volume but worth watching on the Vercel usage page. Raw pageview events are pruned after 13 months (leads are kept), which keeps the database small. Postgres connections use a small pool, the same pattern as the Scorecard's `lib/db.ts`.
+**Watch-outs on Vercel:** every pageview beacon is a function call, which is fine at our volume but worth watching on the Vercel usage page. To stay small, the app does **not** store every pageview: only arrivals that carry attribution (ads, GBP, search, other sites), phone clicks and form events, plus leads. GA4 remains the source for pageview counts. Older raw events are pruned after 13 months; leads are kept. Postgres connections use a small pool, the same pattern as the Scorecard's `lib/db.ts`.
 
 ## 5. The tracking snippet (the "WhatConverts" part)
 
