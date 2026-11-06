@@ -59,7 +59,7 @@ Every lead (form fill or phone call) gets stored with its full source story: the
 | App + API | **Next.js (App Router) + TypeScript** | One codebase for the dashboard, the tracking endpoints and the webhooks. Huge ecosystem, easy to hire for. |
 | Database | **Postgres on Neon (free tier)** | Same database as the Silverback Scorecard. Connected with Neon's HTTP driver, which works inside Cloudflare Workers. Relational data plus JSONB for raw payloads, with backups and branching. |
 | ORM | **Drizzle** | Typed SQL, lightweight, plain migrations. |
-| Auth | **Auth.js (NextAuth)** with email magic links + Google sign-in for staff | Clients just get a login link; no password resets to support. |
+| Auth | **Email + password with signed session cookies** (same approach as the Silverback Scorecard) | Works on Cloudflare's free plan with no email service. The team creates client logins and resets passwords from the Setup tab. Magic-link email can be added later. |
 | Background jobs | **Cloudflare cron triggers** (free) calling `/api/cron/<job>` | Nightly API syncs and monthly heat maps. Each run works through a batch of clients so no single run hits Worker limits. DataForSEO heat maps use its standard queue with a postback URL, so we never wait on it. |
 | Charts / UI | **Tailwind + shadcn/ui + Recharts**, **Leaflet** for heat maps | Clean, brandable, fast to build. |
 | Email | **Resend** or Postmark | New lead alerts, weekly client summaries. |

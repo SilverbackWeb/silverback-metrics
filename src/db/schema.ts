@@ -1,9 +1,9 @@
 /**
  * First-cut data model. See docs/PLAN.md section 13.
- * Every client-facing query must be scoped by clientId (see src/db/scope.ts, phase 1).
+ * Every client-facing query must be scoped by clientId (see src/lib/access.ts).
  */
 import {
-  pgTable, pgEnum, uuid, text, timestamp, jsonb, integer, boolean, date, numeric,
+  pgTable, pgEnum, uuid, text, timestamp, jsonb, integer, boolean, date, bigint,
   index, uniqueIndex, primaryKey, doublePrecision,
 } from "drizzle-orm/pg-core";
 
@@ -22,6 +22,8 @@ export const users = pgTable("users", {
   name: text("name"),
   isAgency: boolean("is_agency").default(false).notNull(), // agency staff see all clients
   agencyRole: roleEnum("agency_role"),
+  passwordHash: text("password_hash"),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   createdAt: created(),
 });
 
@@ -163,6 +165,18 @@ export const leads = pgTable("leads", {
   index("leads_gclid").on(t.gclid),
 ]);
 
+/** Who changed a lead's status or value, and when (clients and team can both edit). */
+export const leadEdits = pgTable("lead_edits", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  leadId: uuid("lead_id").notNull().references(() => leads.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  userName: text("user_name"),
+  field: text("field").notNull(), // status | value | sale
+  oldValue: text("old_value"),
+  newValue: text("new_value"),
+  createdAt: created(),
+}, (t) => [index("lead_edits_lead").on(t.leadId, t.createdAt)]);
+
 // ---------- synced metrics (phase 2-3) ----------
 
 export const adsDaily = pgTable("ads_daily", {
@@ -172,7 +186,7 @@ export const adsDaily = pgTable("ads_daily", {
   campaignName: text("campaign_name"),
   impressions: integer("impressions").default(0).notNull(),
   clicks: integer("clicks").default(0).notNull(),
-  costMicros: numeric("cost_micros", { mode: "bigint" }).default(0n).notNull(),
+  costMicros: bigint("cost_micros", { mode: "number" }).default(0).notNull(),
   conversions: doublePrecision("conversions").default(0).notNull(),
 }, (t) => [primaryKey({ columns: [t.clientId, t.day, t.campaignId] })]);
 
