@@ -19,13 +19,16 @@
     "@neondatabase/serverless": "^1.2.0",
     "@opennextjs/cloudflare": "^1.20.16",
     "drizzle-orm": "^0.44.0",
+    "jose": "^5.9.6",
     "next": "^15.5.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.15",
     "@types/node": "^22.0.0",
     "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.3.0",
     "drizzle-kit": "^0.31.0",
     "jsdom": "^26.1.0",
     "typescript": "^5.8.0",
