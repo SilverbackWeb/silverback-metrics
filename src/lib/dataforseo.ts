@@ -43,14 +43,21 @@ export function findOrganic(result: Json, domain: string): { position: number | 
 }
 
 /** Position of the client's Business Profile in Google Maps results, matched by website or business name. */
-export function findMaps(result: Json, domain: string, name: string | null): { position: number | null; url: string | null } {
+export type MapsHit = { position: number | null; url: string | null; place?: { lat: number; lng: number; cid: string | null; title: string | null } };
+
+export function findMaps(result: Json, domain: string, name: string | null, cid?: string | null): MapsHit {
   const mine = cleanDomain(domain);
   const n = name?.trim().toLowerCase();
   for (const it of result.items ?? []) {
     if (!String(it.type ?? "").startsWith("maps")) continue;
+    const byCid = cid ? String(it.cid ?? "") === cid : false;
     const byDomain = sameSite(it.domain ?? it.url, mine);
     const byName = n ? String(it.title ?? "").toLowerCase().includes(n) : false;
-    if (byDomain || byName) return { position: it.rank_group ?? null, url: it.title ?? null };
+    if (byCid || byDomain || byName) {
+      const place = typeof it.latitude === "number" && typeof it.longitude === "number"
+        ? { lat: it.latitude, lng: it.longitude, cid: it.cid ? String(it.cid) : null, title: it.title ?? null } : undefined;
+      return { position: it.rank_group ?? null, url: it.title ?? null, place };
+    }
   }
   return { position: null, url: null };
 }

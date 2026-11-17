@@ -41,6 +41,8 @@ export const clients = pgTable("clients", {
   // and how to spot the client's Google Business Profile in Maps results.
   rankLocations: jsonb("rank_locations").$type<string[]>().default([]).notNull(),
   gbpName: text("gbp_name"),
+  // The listing found in Maps for each rank location: heat maps are centered on it and match it by CID.
+  gbpPlaces: jsonb("gbp_places").$type<Record<string, { lat: number; lng: number; cid: string | null; title: string | null }>>().default({}).notNull(),
   rankCheckedAt: timestamp("rank_checked_at", { withTimezone: true }),
   rankCheckError: text("rank_check_error"),
   rankedSnapshotAt: timestamp("ranked_snapshot_at", { withTimezone: true }),
@@ -270,7 +272,10 @@ export const heatmapScans = pgTable("heatmap_scans", {
   gridSize: integer("grid_size").default(7).notNull(),
   radiusMiles: doublePrecision("radius_miles").default(5).notNull(),
   targetCid: text("target_cid"), // the client's Google Maps CID / place ID
+  location: text("location").default("").notNull(), // which rank location (GBP listing) this scan is for
+  token: text("token"),              // checked on DataForSEO's postback
   status: text("status").default("queued").notNull(),
+  error: text("error"),
   createdAt: created(),
 });
 

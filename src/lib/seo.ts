@@ -33,10 +33,14 @@ export async function runRankCheck(clientId: string) {
       ...(k.trackOrganic ? [{ k, loc, engine: "organic" as const }] : []),
       ...(k.trackMaps ? [{ k, loc, engine: "maps" as const }] : []),
     ]));
+    const places = { ...client.gbpPlaces };
     const rows = await Promise.all(jobs.map(async ({ k, loc, engine }) => {
-      const r = engine === "organic"
-        ? findOrganic(await dfsPost("serp/google/organic/live/advanced", organicTask(k.keyword, loc)), domain)
-        : findMaps(await dfsPost("serp/google/maps/live/advanced", mapsTask(k.keyword, loc)), domain, client.gbpName);
+      if (engine === "organic") {
+        const r = findOrganic(await dfsPost("serp/google/organic/live/advanced", organicTask(k.keyword, loc)), domain);
+        return { keywordId: k.id, day, engine, location: loc, position: r.position, url: r.url, checkedAt: new Date() };
+      }
+      const r = findMaps(await dfsPost("serp/google/maps/live/advanced", mapsTask(k.keyword, loc)), domain, client.gbpName, places[loc]?.cid);
+      if (r.place && !places[loc]) places[loc] = r.place; // remember the listing (heat maps center on it)
       return { keywordId: k.id, day, engine, location: loc, position: r.position, url: r.url, checkedAt: new Date() };
     }));
     if (rows.length) {
@@ -45,7 +49,7 @@ export async function runRankCheck(clientId: string) {
         set: { position: sql`excluded.position`, url: sql`excluded.url`, checkedAt: sql`excluded.checked_at` },
       });
     }
-    await db.update(schema.clients).set({ rankCheckedAt: new Date(), rankCheckError: null }).where(eq(schema.clients.id, client.id));
+    await db.update(schema.clients).set({ rankCheckedAt: new Date(), rankCheckError: null, gbpPlaces: places }).where(eq(schema.clients.id, client.id));
   } catch (e) {
     await db.update(schema.clients).set({ rankCheckedAt: new Date(), rankCheckError: (e as Error).message.slice(0, 300) }).where(eq(schema.clients.id, client.id));
   }

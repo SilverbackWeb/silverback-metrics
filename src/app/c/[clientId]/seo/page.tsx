@@ -1,10 +1,12 @@
 /** SEO tab: the keywords we care about (Google + Maps position), and every keyword on page 1. */
+import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireClient } from "@/lib/access";
 import { hasDataForSeo } from "@/lib/dataforseo";
 import { MAX_PAIRS, rankedSummary, runRankCheck, runRankedSnapshot, trackedTable } from "@/lib/seo";
+import { GRID, RADIUS_MILES, latestScans, queueHeatmaps, scanStats } from "@/lib/heatmap";
 import { ClientShell } from "@/components/ClientShell";
 
 async function team(clientId: string) {
@@ -36,7 +38,10 @@ async function saveSettings(clientId: string, form: FormData) {
   "use server";
   const { client } = await team(clientId);
   const locs = String(form.get("locations") ?? "").split("\n").map((s) => s.trim().replace(/\s*,\s*/g, ",")).filter(Boolean).slice(0, 3);
-  await db.update(schema.clients).set({ rankLocations: locs, gbpName: String(form.get("gbpName") ?? "").trim() || null }).where(eq(schema.clients.id, client.id));
+  const gbpName = String(form.get("gbpName") ?? "").trim() || null;
+  // Forget listings for removed areas, or all of them if the business name changed (they'll be found again).
+  const places = gbpName === client.gbpName ? Object.fromEntries(Object.entries(client.gbpPlaces).filter(([l]) => locs.includes(l))) : {};
+  await db.update(schema.clients).set({ rankLocations: locs, gbpName, gbpPlaces: places }).where(eq(schema.clients.id, client.id));
   redirect(`/c/${clientId}/seo`);
 }
 
@@ -47,6 +52,23 @@ async function checkNow(clientId: string) {
   if (client.rankCheckedAt && Date.now() - client.rankCheckedAt.getTime() < 10 * 60e3) redirect(`/c/${clientId}/seo?e=wait`);
   await Promise.all([runRankCheck(client.id), runRankedSnapshot(client.id)]);
   redirect(`/c/${clientId}/seo`);
+}
+
+async function runHeatmapNow(clientId: string) {
+  "use server";
+  const { client } = await team(clientId);
+  // One run a day at most: each run is 49 lookups per keyword and area.
+  const [recent] = await db.select({ id: schema.heatmapScans.id }).from(schema.heatmapScans)
+    .where(and(eq(schema.heatmapScans.clientId, client.id), gt(schema.heatmapScans.createdAt, new Date(Date.now() - 864e5)))).limit(1);
+  if (recent) redirect(`/c/${clientId}/seo?e=hmwait#heatmap`);
+  const h = await headers();
+  const base = (process.env.APP_URL ?? `${h.get("x-forwarded-proto") ?? "https"}://${h.get("host")}`).replace(/\/$/, "");
+  try { await queueHeatmaps(client.id, base); } catch { redirect(`/c/${clientId}/seo?e=hmfail#heatmap`); }
+  redirect(`/c/${clientId}/seo?e=hmqueued#heatmap`);
+}
+
+function rankColor(r: number | null) {
+  return r === null ? "var(--bad)" : r <= 3 ? "var(--good)" : r <= 10 ? "var(--warn)" : "var(--bad)";
 }
 
 function Pos({ now, prev }: { now: number | null; prev: number | null | undefined }) {
@@ -65,11 +87,13 @@ const path = (u: string | null) => { if (!u) return ""; try { return new URL(u).
 const fmtN = (n: number | null) => (n == null ? "—" : n.toLocaleString("en-US"));
 const city = (loc: string) => loc.split(",")[0];
 
-export default async function Seo({ params, searchParams }: { params: Promise<{ clientId: string }>; searchParams: Promise<{ e?: string }> }) {
+export default async function Seo({ params, searchParams }: { params: Promise<{ clientId: string }>; searchParams: Promise<{ e?: string; hm?: string }> }) {
   const { clientId } = await params;
-  const { e } = await searchParams;
+  const { e, hm } = await searchParams;
   const { client, user } = await requireClient(clientId);
-  const [tracked, ranked] = await Promise.all([trackedTable(client.id), rankedSummary(client.id)]);
+  const [tracked, ranked, scans] = await Promise.all([trackedTable(client.id), rankedSummary(client.id), latestScans(client.id)]);
+  const scan = scans.find((s) => s.id === hm) ?? scans[0] ?? null;
+  const hasPlaces = Object.keys(client.gbpPlaces).length > 0;
   const kwCount = new Set(tracked.map((t) => t.id)).size;
   const when = new Intl.DateTimeFormat("en-US", { timeZone: client.timezone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const lastChecked = tracked.map((t) => t.checkedAt).filter(Boolean).sort((a, b) => b!.getTime() - a!.getTime())[0] ?? null;
@@ -146,6 +170,51 @@ export default async function Seo({ params, searchParams }: { params: Promise<{ 
         <p className="vsub" style={{ margin: 0, fontSize: 12.5 }}>From DataForSEO&apos;s nationwide Google data, refreshed monthly. Local results can differ; the tracked keywords above are checked from your service area.</p>
       </section>
 
+
+      <section className="panel" id="heatmap">
+        <div className="ph"><h2>Google Maps heat map</h2><span>{GRID}×{GRID} grid · {RADIUS_MILES} miles around the listing · monthly</span></div>
+        {scans.length > 1 && (
+          <div className="seg" role="list">{scans.map((s) => (
+            <a key={s.id} role="listitem" className={`pill${s.id === scan?.id ? " on" : ""}`} href={`?hm=${s.id}#heatmap`}>{s.keyword}{new Set(scans.map((x) => x.location)).size > 1 ? ` · ${city(s.location)}` : ""}</a>
+          ))}</div>
+        )}
+        {!scan ? (
+          <p className="empty">{hasPlaces ? "The first heat map runs within a day." : "The heat map starts after the first rankings check finds the Google Business Profile listing."}</p>
+        ) : (() => {
+          const st = scanStats(scan.points);
+          const at = new Map(scan.points.map((p) => [`${p.row}:${p.col}`, p.rank]));
+          const mid = (scan.gridSize - 1) / 2;
+          return (<>
+            <p className="vsub" style={{ margin: 0 }}><b>{scan.keyword}</b>{scan.location ? ` · around ${city(scan.location)}` : ""} · {when.format(scan.createdAt)}
+              {scan.status !== "done" && scan.status !== "failed" && ` · ${scan.points.length} of ${scan.gridSize ** 2} points in so far`}
+              {scan.status === "failed" && ` · failed: ${scan.error ?? "unknown error"}`}</p>
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${scan.gridSize}, minmax(0, 44px))`, gap: 6, justifyContent: "center", padding: "8px 0" }} role="img"
+              aria-label={`Heat map: average Maps position ${st.avg ?? "unknown"}, top 3 at ${st.top3}% of points`}>
+              {Array.from({ length: scan.gridSize ** 2 }, (_, i) => {
+                const r = Math.floor(i / scan.gridSize), c = i % scan.gridSize;
+                const key = `${r}:${c}`, has = at.has(key), rank = at.get(key) ?? null;
+                return <span key={key} title={has ? (rank ? `#${rank}` : "not in top 20") : "waiting"} style={{
+                  aspectRatio: "1", borderRadius: "50%", display: "grid", placeItems: "center", fontSize: 13, fontWeight: 700,
+                  background: has ? rankColor(rank) : "var(--surface-2)", color: has ? "#fff" : "var(--muted)",
+                  outline: r === mid && c === mid ? "3px solid var(--fg)" : undefined, outlineOffset: 2,
+                }}>{has ? (rank ?? "20+") : "·"}</span>;
+              })}
+            </div>
+            <div className="kpis">
+              <div className="kpi"><span className="l">Average Maps position</span><span className="v">{st.avg ?? "—"}</span><span className="d">across the grid (20+ counts as 21)</span></div>
+              <div className="kpi"><span className="l">Top 3 coverage</span><span className="v">{st.top3}%</span><span className="d">of points show them in the top 3</span></div>
+              <div className="kpi"><span className="l">Found in top 20</span><span className="v">{st.found}/{scan.points.length || scan.gridSize ** 2}</span><span className="d">points</span></div>
+            </div>
+            <p className="vsub" style={{ margin: 0, fontSize: 12.5 }}>Each dot is a spot about {(2 * scan.radiusMiles / (scan.gridSize - 1)).toFixed(1)} miles apart, with north at the top; the outlined dot is the business. Green = top 3, yellow = 4 to 10, red = 11+ or not found.</p>
+          </>);
+        })()}
+        {user.isAgency && (<>
+          {e === "hmwait" && <p className="err">A heat map already ran in the last day.</p>}
+          {e === "hmfail" && <p className="err">DataForSEO didn&apos;t accept the heat map. Check the connection and try again.</p>}
+          {e === "hmqueued" && <p className="notice">Heat map started. Points fill in over the next few minutes; refresh to see them.</p>}
+          {hasPlaces && connected && <form action={runHeatmapNow.bind(null, client.id)}><button className="pill" type="submit">Run heat map now</button></form>}
+        </>)}
+      </section>
       {user.isAgency && (
         <section className="panel">
           <div className="ph"><h2>Ranking settings</h2><span>team only</span></div>

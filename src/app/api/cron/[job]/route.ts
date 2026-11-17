@@ -3,6 +3,7 @@
  * Each run handles a batch of clients so it stays inside Worker limits.
  */
 import { seoHourly } from "@/lib/seo";
+import { heatmapsDue } from "@/lib/heatmap";
 
 const JOBS = new Set(["nightly-sync", "monthly-heatmaps", "seo-hourly"]);
 
@@ -14,7 +15,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ job: string }>
   }
   if (!JOBS.has(job)) return new Response("unknown job", { status: 404 });
 
-  if (job === "seo-hourly") return Response.json({ ok: true, job, ...(await seoHourly()) });
+  if (job === "seo-hourly") {
+    const seo = await seoHourly();
+    const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
+    const heatmap = base ? await heatmapsDue(base) : null;
+    return Response.json({ ok: true, job, ...seo, heatmap });
+  }
 
   // TODO(phase 2): nightly-sync -> Google Ads, GA4, Search Console, gclid lookups, backup-lead dedupe, event pruning.
   // TODO(phase 3): monthly-heatmaps -> queue DataForSEO tasks with a postback URL; results land in /api/ingest/dataforseo.

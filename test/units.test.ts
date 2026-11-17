@@ -63,3 +63,15 @@ describe("util", () => {
     expect(cleanDomain("https://www.Client.com/contact")).toBe("client.com");
   });
 });
+
+describe("heat map grid", () => {
+  it("is centered on the listing with north at the top, about 5 miles each way", async () => {
+    const { gridPoints } = await import("@/lib/heatmap");
+    const pts = gridPoints(38.58, -90.4, 7, 5);
+    expect(pts).toHaveLength(49);
+    expect(pts[24]).toMatchObject({ row: 3, col: 3, lat: 38.58, lng: -90.4 });
+    expect(pts[0].lat).toBeGreaterThan(38.58);
+    expect(pts[0].lng).toBeLessThan(-90.4);
+    expect((pts[3].lat - 38.58) * 69).toBeCloseTo(5, 1);
+  });
+});

@@ -22,7 +22,7 @@ const organic = { items: [
 ] };
 const maps = { items: [
   { type: "maps_search", rank_group: 1, title: "Sparky's", domain: "sparkys.com" },
-  { type: "maps_search", rank_group: 2, title: "Exceptional Electric LLC", domain: null },
+  { type: "maps_search", rank_group: 2, title: "Exceptional Electric LLC", domain: null, latitude: 38.5834, longitude: -90.4068, cid: "123456789" },
 ] };
 const ranked = { items: [
   { keyword_data: { keyword: "electrician kirkwood", keyword_info: { search_volume: 390 } }, ranked_serp_element: { serp_item: { rank_group: 3, url: "https://exceptionalelectric.com/", etv: 40 } } },
@@ -75,6 +75,36 @@ describe("rank check and SEO page", () => {
     expect((await seoHourly()).rankCheck).toBeNull(); // not due again for a week
   });
 
+  it("queues a heat map around the listing and saves gzipped postbacks", async () => {
+    const [c] = await holder.db!.select().from(schema.clients).where(eq(schema.clients.id, clientId));
+    expect(c.gbpPlaces["Kirkwood,Missouri,United States"]).toMatchObject({ lat: 38.5834, cid: "123456789" });
+    const posted: { tag: string; postback_url: string; location_coordinate: string }[] = [];
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      const tasks = JSON.parse(String(init.body));
+      posted.push(...tasks);
+      return new Response(JSON.stringify({ tasks: tasks.map(() => ({ status_code: 20100, status_message: "Task Created." })) }));
+    });
+    const { queueHeatmaps, latestScans, scanStats } = await import("@/lib/heatmap");
+    expect(await queueHeatmaps(clientId, "https://metrics.test")).toBe(1);
+    expect(posted).toHaveLength(49);
+    expect(posted[24].location_coordinate).toBe("38.5834,-90.4068,13z"); // center point
+
+    const { POST } = await import("@/app/api/ingest/dataforseo/heatmap/route");
+    const send = async (task: (typeof posted)[number], rank: number | null) => {
+      const items = rank ? [{ type: "maps_search", rank_group: rank, title: "Someone else", cid: "1" }, { type: "maps_search", rank_group: rank, title: "x", cid: "123456789" }] : [];
+      const json = JSON.stringify({ tasks: [{ status_code: 20000, data: { tag: task.tag }, result: [{ items }] }] });
+      const gz = await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer();
+      return POST(new Request(task.postback_url, { method: "POST", body: gz }));
+    };
+    const bad = new Request(posted[0].postback_url.replace(/token=[^&]+/, "token=wrong"), { method: "POST", body: JSON.stringify({ tasks: [{ status_code: 20000, data: { tag: posted[0].tag }, result: [] }] }) });
+    expect(await (await POST(bad)).json()).toMatchObject({ saved: 0 });
+    for (const [i, t] of posted.entries()) await send(t, i % 2 ? 2 : null);
+    const [scan] = await latestScans(clientId);
+    expect(scan.status).toBe("done");
+    expect(scan.points).toHaveLength(49);
+    expect(scanStats(scan.points)).toMatchObject({ top3: 49 > 0 ? Math.round((24 / 49) * 100) : 0, found: 24 });
+  });
+
   it("renders for the team (with editing) and for the client (read only)", async () => {
     const { signSession } = await import("@/lib/session");
     const { default: Seo } = await import("@/app/c/[clientId]/seo/page");
@@ -85,6 +115,8 @@ describe("rank check and SEO page", () => {
     expect(team).toContain("#2");
     expect(team).toContain("Add keywords");
     expect(team).toContain("On page 1 of Google");
+    expect(team).toContain("Google Maps heat map");
+    expect(team).toContain("Top 3 coverage");
     holder.token = await signSession({ userId: ownerId, name: "Owner", agency: false });
     const client = renderToString(await Seo(p));
     expect(client).toContain("electrician kirkwood");
