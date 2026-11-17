@@ -6,11 +6,12 @@
 import { db, schema } from "@/db";
 import { callNotLeadReasons, parseCallRail } from "@/lib/callrail";
 import { siteByKeyAndToken } from "@/lib/touches";
+import { respondWithin, withRetry } from "@/lib/background";
 
-export async function POST(req: Request, ctx: { params: Promise<{ siteKey: string }> }) {
+async function handle(req: Request, ctx: { params: Promise<{ siteKey: string }> }) {
   const { siteKey } = await ctx.params;
   const token = new URL(req.url).searchParams.get("token");
-  const site = await siteByKeyAndToken(siteKey, token);
+  const site = await withRetry(() => siteByKeyAndToken(siteKey, token));
   if (!site) return Response.json({ ok: false, error: "unknown site or bad token" }, { status: 401 });
 
   const text = await req.text();
@@ -24,11 +25,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ siteKey: strin
   }
 
   const c = parseCallRail(input);
-  const [client] = await db.query.clients.findMany({ where: (cl, { eq }) => eq(cl.id, site.clientId), limit: 1 });
+  const [client] = await withRetry(() => db.query.clients.findMany({ where: (cl, { eq }) => eq(cl.id, site.clientId), limit: 1 }));
   const notLead = callNotLeadReasons(c, client?.minCallSecondsForLead ?? 60);
   const t = c.touch;
 
-  const [lead] = await db.insert(schema.leads).values({
+  const [lead] = await withRetry(() => db.insert(schema.leads).values({
     clientId: site.clientId,
     siteId: site.id,
     type: "call",
@@ -51,7 +52,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ siteKey: strin
     valueCents: notLead.length ? null : client?.defaultCallValueCents || null,
     raw: { callrailSource: c.sourceName, callrailCampaign: c.campaign, keyword: c.keyword, trackingNumber: c.trackingNumber, firstCall: c.firstCall, answered: c.answered },
     ...(c.startedAt ? { createdAt: c.startedAt } : {}),
-  }).onConflictDoNothing().returning({ id: schema.leads.id });
+  }).onConflictDoNothing().returning({ id: schema.leads.id }));
 
   return Response.json({ ok: true, id: lead?.id ?? null, duplicate: !lead });
+}
+
+export async function POST(req: Request, ctx: { params: Promise<{ siteKey: string }> }) {
+  // Read the body now: it can't be read after we've answered the sender.
+  const copy = new Request(req.url, { method: "POST", headers: req.headers, body: await req.text() });
+  return respondWithin(4000, handle(copy, ctx));
 }
