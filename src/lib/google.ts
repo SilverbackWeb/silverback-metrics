@@ -18,7 +18,11 @@ export const SCOPES = [
 export function googleConfigured() {
   return Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 }
-export const adsVersion = () => process.env.GOOGLE_ADS_API_VERSION || "v22";
+// Google retires Ads API versions about a year after release. Try the configured one, then recent ones,
+// and remember whichever answers, so a retired default doesn't break the sync.
+const VERSIONS = ["v24", "v23", "v22", "v21"];
+let workingVersion: string | null = null;
+export const adsVersion = () => workingVersion ?? process.env.GOOGLE_ADS_API_VERSION ?? VERSIONS[0];
 export const digits = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");
 
 // ---- refresh token encryption (AES-GCM, key derived from AUTH_SECRET) ----
@@ -88,21 +92,31 @@ export async function accessToken() {
 // ---- Google Ads (GAQL) ----
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
+async function adsSearch(version: string, customerId: string, body: object) {
+  return fetch(`https://googleads.googleapis.com/${version}/customers/${digits(customerId)}/googleAds:search`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${await accessToken()}`, "content-type": "application/json",
+      ...(process.env.GOOGLE_ADS_DEVELOPER_TOKEN ? { "developer-token": process.env.GOOGLE_ADS_DEVELOPER_TOKEN } : {}),
+      ...(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID ? { "login-customer-id": digits(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID) } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+}
+
 export async function gaql(customerId: string, query: string, maxPages = 5): Promise<Row[]> {
   const out: Row[] = [];
   let pageToken: string | undefined;
   for (let i = 0; i < maxPages; i++) {
-    const res = await fetch(`https://googleads.googleapis.com/${adsVersion()}/customers/${digits(customerId)}/googleAds:search`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${await accessToken()}`, "content-type": "application/json",
-        "developer-token": process.env.GOOGLE_ADS_DEVELOPER_TOKEN ?? "",
-        ...(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID ? { "login-customer-id": digits(process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID) } : {}),
-      },
-      body: JSON.stringify({ query, ...(pageToken ? { pageToken } : {}) }),
-    });
-    const j = await res.json() as { results?: Row[]; nextPageToken?: string; error?: { message?: string; details?: { errors?: { message?: string }[] }[] } };
-    if (!res.ok) throw new Error(`Google Ads: ${j.error?.details?.[0]?.errors?.[0]?.message ?? j.error?.message ?? res.status}`);
+    const body = { query, ...(pageToken ? { pageToken } : {}) };
+    let res: Response | null = null;
+    const tries = workingVersion ? [workingVersion] : [...new Set([process.env.GOOGLE_ADS_API_VERSION, ...VERSIONS].filter(Boolean) as string[])];
+    for (const v of tries) {
+      res = await adsSearch(v, customerId, body);
+      if (res.status !== 404) { workingVersion = v; break; } // 404 = this API version is retired or not out yet
+    }
+    const j = await res!.json().catch(() => ({})) as { results?: Row[]; nextPageToken?: string; error?: { message?: string; details?: { errors?: { message?: string }[] }[] } };
+    if (!res!.ok) throw new Error(`Google Ads: ${j.error?.details?.[0]?.errors?.[0]?.message ?? j.error?.message ?? res!.status}`);
     out.push(...(j.results ?? []));
     if (!j.nextPageToken) break;
     pageToken = j.nextPageToken;
