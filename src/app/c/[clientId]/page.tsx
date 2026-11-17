@@ -54,7 +54,7 @@ export default async function Overview({ params, searchParams }: { params: Promi
               </tr>))}</tbody></table></div>
         </section>
       </>)}
-      <p className="foot">Google Ads spend, rankings and map heat maps are added in the next phases.</p>
+      <p className="foot">Google Ads spend and map heat maps are added in the next phases. Rankings are on the SEO tab.</p>
     </ClientShell>
   );
 }

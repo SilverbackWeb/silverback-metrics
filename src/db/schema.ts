@@ -37,6 +37,13 @@ export const clients = pgTable("clients", {
   defaultCallValueCents: integer("default_call_value_cents").default(0).notNull(),
   minCallSecondsForLead: integer("min_call_seconds_for_lead").default(60).notNull(),
   clientsCanEditLeads: boolean("clients_can_edit_leads").default(true).notNull(),
+  // SEO: where to check rankings (DataForSEO location names, e.g. "Kirkwood,Missouri,United States"),
+  // and how to spot the client's Google Business Profile in Maps results.
+  rankLocations: jsonb("rank_locations").$type<string[]>().default([]).notNull(),
+  gbpName: text("gbp_name"),
+  rankCheckedAt: timestamp("rank_checked_at", { withTimezone: true }),
+  rankCheckError: text("rank_check_error"),
+  rankedSnapshotAt: timestamp("ranked_snapshot_at", { withTimezone: true }),
   createdAt: created(),
 });
 
@@ -230,15 +237,29 @@ export const rankKeywords = pgTable("rank_keywords", {
   locationCode: integer("location_code"), // DataForSEO location
   trackOrganic: boolean("track_organic").default(true).notNull(),
   trackMaps: boolean("track_maps").default(true).notNull(),
-});
+  createdAt: created(),
+}, (t) => [uniqueIndex("rank_keywords_client_kw").on(t.clientId, t.keyword)]);
 
 export const rankResults = pgTable("rank_results", {
   keywordId: uuid("keyword_id").notNull().references(() => rankKeywords.id, { onDelete: "cascade" }),
   day: date("day").notNull(),
   engine: text("engine").notNull(), // organic | maps
+  location: text("location").default("").notNull(),
   position: integer("position"),     // null = not in results
   url: text("url"),
-}, (t) => [primaryKey({ columns: [t.keywordId, t.day, t.engine] })]);
+  checkedAt: timestamp("checked_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [primaryKey({ columns: [t.keywordId, t.day, t.engine, t.location] })]);
+
+/** Every keyword the client's site shows up for in Google (DataForSEO Labs), saved per snapshot. */
+export const rankedKeywords = pgTable("ranked_keywords", {
+  clientId: uuid("client_id").notNull().references(() => clients.id, { onDelete: "cascade" }),
+  day: date("day").notNull(),
+  keyword: text("keyword").notNull(),
+  position: integer("position").notNull(),
+  url: text("url"),
+  searchVolume: integer("search_volume"),
+  etv: doublePrecision("etv"), // estimated monthly visits from this keyword
+}, (t) => [primaryKey({ columns: [t.clientId, t.day, t.keyword] })]);
 
 export const heatmapScans = pgTable("heatmap_scans", {
   id: uuid("id").primaryKey().defaultRandom(),

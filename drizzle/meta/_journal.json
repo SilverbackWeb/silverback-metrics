@@ -15,6 +15,13 @@
       "when": 1794942537058,
       "tag": "0001_callrail",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794948164779,
+      "tag": "0002_seo",
+      "breakpoints": true
     }
   ]
 }

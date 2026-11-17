@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Client } from "@/lib/access";
 import { Header, initialsOf } from "./ui";
 
-type Tab = "overview" | "leads" | "setup";
+type Tab = "overview" | "leads" | "seo" | "setup";
 
 export function ClientShell({ client, active, isAgency, month, children }: {
   client: Client; active: Tab; isAgency: boolean; month?: { label: string; prev: string; next: string | null; base: string };
@@ -12,6 +12,7 @@ export function ClientShell({ client, active, isAgency, month, children }: {
   const tabs = [
     { href: base, label: "Overview", current: active === "overview" },
     { href: `${base}/leads`, label: "Leads", current: active === "leads" },
+    { href: `${base}/seo`, label: "SEO", current: active === "seo" },
     ...(isAgency ? [{ href: `${base}/setup`, label: "Setup", current: active === "setup", team: true }] : []),
   ];
   const right = month ? (
