@@ -12,6 +12,7 @@ const JOBS: Record<string, string> = {
   "0 9 * * *": "nightly-sync",
   "0 10 1 * *": "monthly-heatmaps",
   "20 * * * *": "seo-hourly",
+  "40 * * * *": "google-hourly",
 };
 
 export default {

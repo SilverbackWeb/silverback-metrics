@@ -199,7 +199,27 @@ export const adsDaily = pgTable("ads_daily", {
   clicks: integer("clicks").default(0).notNull(),
   costMicros: bigint("cost_micros", { mode: "number" }).default(0).notNull(),
   conversions: doublePrecision("conversions").default(0).notNull(),
+  channelType: text("channel_type").default("").notNull(), // SEARCH, PERFORMANCE_MAX, LOCAL_SERVICES, ...
 }, (t) => [primaryKey({ columns: [t.clientId, t.day, t.campaignId] })]);
+
+/** Silverback's one Google sign-in (agency account): covers Google Ads, Local Services, Search Console. */
+export const googleAuth = pgTable("google_auth", {
+  id: text("id").primaryKey(), // always "agency"
+  email: text("email"),
+  refreshTokenEnc: text("refresh_token_enc").notNull(),
+  scopes: text("scopes"),
+  connectedAt: timestamp("connected_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/** Top Search Console searches and pages for the last 28 days, replaced on each sync. */
+export const gscTop = pgTable("gsc_top", {
+  clientId: uuid("client_id").notNull().references(() => clients.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(), // query | page
+  key: text("key").notNull(),
+  clicks: integer("clicks").default(0).notNull(),
+  impressions: integer("impressions").default(0).notNull(),
+  position: doublePrecision("position"),
+}, (t) => [primaryKey({ columns: [t.clientId, t.kind, t.key] })]);
 
 export const ga4Daily = pgTable("ga4_daily", {
   clientId: uuid("client_id").notNull().references(() => clients.id, { onDelete: "cascade" }),

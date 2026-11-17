@@ -40,7 +40,10 @@ export default async function Seo({ params, searchParams }: { params: Promise<{ 
   const { e, saved } = await searchParams;
   const { client, user } = await requireClient(clientId);
   const mo = resolveMonth(undefined, client.timezone);
-  const [tracked, ranked, gsc, leads] = await Promise.all([trackedTable(client.id), rankedSummary(client.id), gscByMonth(client.id), leadsInMonth(client.id, mo.ym, client.timezone)]);
+  const [tracked, ranked, gsc, leads, top] = await Promise.all([trackedTable(client.id), rankedSummary(client.id), gscByMonth(client.id),
+    leadsInMonth(client.id, mo.ym, client.timezone), db.select().from(schema.gscTop).where(eq(schema.gscTop.clientId, client.id))]);
+  const topQ = top.filter((t) => t.kind === "query").sort((a, b) => b.clicks - a.clicks).slice(0, 15);
+  const topP = top.filter((t) => t.kind === "page").sort((a, b) => b.clicks - a.clicks).slice(0, 10);
   const when = new Intl.DateTimeFormat("en-US", { timeZone: client.timezone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const organic = summarize(leads.filter((l) => l.channel === "organic_search")).leads;
   const ready = client.rankLocations.length > 0;
@@ -60,6 +63,19 @@ export default async function Seo({ params, searchParams }: { params: Promise<{ 
           <div className="kpi" style={{ border: 0, padding: 0 }}><span className="v">{organic}</span><span className="d">calls and forms from Google search in {monthLabel(mo.ym).split(" ")[0]}</span></div>
         </section>
       </div>
+
+      {top.length > 0 && (
+        <div className="cols even">
+          <section className="panel"><div className="ph"><h2>Top searches</h2><span>last 28 days · Search Console</span></div>
+            <div className="tbl"><table><thead><tr><th>Search</th><th className="n">Clicks</th><th className="n hide-s">Impr.</th><th className="n">Avg pos.</th></tr></thead>
+              <tbody>{topQ.map((r) => <tr key={r.key}><td>{r.key}</td><td className="n">{fmtN(r.clicks)}</td><td className="n hide-s">{fmtN(r.impressions)}</td><td className="n">{r.position?.toFixed(1) ?? "—"}</td></tr>)}</tbody></table></div>
+          </section>
+          <section className="panel"><div className="ph"><h2>Top pages</h2><span>last 28 days</span></div>
+            <div className="tbl"><table><thead><tr><th>Page</th><th className="n">Clicks</th><th className="n hide-s">Impr.</th></tr></thead>
+              <tbody>{topP.map((r) => <tr key={r.key}><td>{path(r.key) || r.key}</td><td className="n">{fmtN(r.clicks)}</td><td className="n hide-s">{fmtN(r.impressions)}</td></tr>)}</tbody></table></div>
+          </section>
+        </div>
+      )}
 
       {ranked && (
         <div className="kpis">

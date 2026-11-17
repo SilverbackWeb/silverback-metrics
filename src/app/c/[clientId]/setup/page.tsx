@@ -6,6 +6,9 @@ import { db, schema } from "@/db";
 import { requireClient, type Role } from "@/lib/access";
 import { hashPassword, tempPassword } from "@/lib/password";
 import { ClientShell } from "@/components/ClientShell";
+import { connection, digits, googleConfigured, listAdsAccounts, listGscSites } from "@/lib/google";
+import { syncClient } from "@/lib/google-sync";
+import { cleanDomain } from "@/lib/util";
 
 const FLASH = "sbm_flash";
 
@@ -65,15 +68,37 @@ async function removeUser(clientId: string, userId: string) {
   redirect(`/c/${clientId}/setup`);
 }
 
+async function saveGoogle(clientId: string, form: FormData) {
+  "use server";
+  const { client, user } = await requireClient(clientId);
+  if (!user.isAgency) notFound();
+  for (const kind of ["google_ads", "gsc"] as const) {
+    const v = String(form.get(kind) ?? "").trim();
+    const ext = kind === "google_ads" ? digits(v) : v;
+    await db.delete(schema.integrations).where(and(eq(schema.integrations.clientId, client.id), eq(schema.integrations.kind, kind)));
+    if (ext) await db.insert(schema.integrations).values({ clientId: client.id, kind, externalId: ext });
+  }
+  try { await syncClient(client.id); } catch { /* errors are saved on each integration */ }
+  redirect(`/c/${clientId}/setup?g=saved#google`);
+}
+
+async function syncGoogleNow(clientId: string) {
+  "use server";
+  const { client, user } = await requireClient(clientId);
+  if (!user.isAgency) notFound();
+  await syncClient(client.id);
+  redirect(`/c/${clientId}/setup?g=synced#google`);
+}
+
 function ago(d: Date | null) {
   if (!d) return null;
   const m = Math.round((Date.now() - d.getTime()) / 60000);
   return m < 2 ? "just now" : m < 60 ? `${m} minutes ago` : m < 2880 ? `${Math.round(m / 60)} hours ago` : `${Math.round(m / 1440)} days ago`;
 }
 
-export default async function Setup({ params, searchParams }: { params: Promise<{ clientId: string }>; searchParams: Promise<{ e?: string }> }) {
+export default async function Setup({ params, searchParams }: { params: Promise<{ clientId: string }>; searchParams: Promise<{ e?: string; g?: string; google?: string }> }) {
   const { clientId } = await params;
-  const { e } = await searchParams;
+  const { e, g, google } = await searchParams;
   const { client, user } = await requireClient(clientId);
   if (!user.isAgency) notFound();
   const base = await appUrl();
@@ -91,6 +116,17 @@ export default async function Setup({ params, searchParams }: { params: Promise<
   try { flash = flashRaw ? JSON.parse(flashRaw) : null; } catch { flash = null; }
 
   const col = { good: "var(--good)", warn: "var(--warn)", bad: "var(--bad)" };
+  const gConfigured = googleConfigured();
+  const gConn = gConfigured ? await connection() : null;
+  const ints = await db.select().from(schema.integrations).where(eq(schema.integrations.clientId, client.id));
+  const adsInt = ints.find((i) => i.kind === "google_ads"), gscInt = ints.find((i) => i.kind === "gsc");
+  let adsAccounts: { id: string; name: string }[] = [], gscSites: string[] = [], listError: string | null = null;
+  if (gConn) {
+    try { [adsAccounts, gscSites] = await Promise.all([listAdsAccounts().catch((x) => { listError = (x as Error).message; return []; }), listGscSites()]); }
+    catch (x) { listError = (x as Error).message; }
+  }
+  const domain = sites[0]?.domain ? cleanDomain(sites[0].domain) : client.website ? cleanDomain(client.website) : "";
+  const gscGuess = gscInt?.externalId ?? gscSites.find((u) => cleanDomain(u.replace(/^sc-domain:/, "")) === domain) ?? "";
   const day = 864e5;
 
   return (
@@ -113,7 +149,7 @@ export default async function Setup({ params, searchParams }: { params: Promise<
           <div className="cols" key={s.id}>
             <section className="panel"><div className="ph"><h2>Health checks · {s.domain}</h2><span>{checks.filter((c) => c[0] === "good").length} of {checks.length} passing</span></div>
               <div>{checks.map(([st, t, d]) => <div className="check" key={t}><i className="sd" style={{ background: col[st] }} /><div><b>{t}</b><span>{d}</span></div></div>)}</div>
-              <p className="vsub" style={{ margin: 0, fontSize: 12.5 }}>Google Analytics, Ads and Business Profile checks are added with those connections.</p>
+              <p className="vsub" style={{ margin: 0, fontSize: 12.5 }}>Google Ads and Search Console are connected in the panel below.</p>
             </section>
             <section className="panel"><div className="ph"><h2>Install</h2></div>
               <p style={{ margin: 0, fontSize: 13.5 }}>1. Paste in the site header (Elementor → Custom Code):</p>
@@ -128,6 +164,41 @@ export default async function Setup({ params, searchParams }: { params: Promise<
           </div>
         );
       })}
+
+      <section className="panel" id="google">
+        <div className="ph"><h2>Google Ads, Local Services &amp; Search Console</h2><span>{gConn ? `connected as ${gConn.email ?? "Google account"}` : "not connected"}</span></div>
+        {google === "connected" && <p className="notice">Google is connected. Pick this client&apos;s accounts below.</p>}
+        {google && google !== "connected" && <p className="err">Google sign-in didn&apos;t finish ({google}). Try again.</p>}
+        {!gConfigured ? <p className="vsub" style={{ margin: 0 }}>The Google app keys aren&apos;t set up on the server yet.</p>
+          : !gConn ? (<>
+            <p style={{ margin: 0, fontSize: 14 }}>Sign in once with the Silverback Google account that manages the Ads MCC and has Search Console access. Every client uses this one connection.</p>
+            {user.agencyRole === "agency_admin" && <div><a className="btn" href={`/api/google/connect?back=${encodeURIComponent(`/c/${client.id}/setup#google`)}`}>Connect Google</a></div>}
+          </>) : (<>
+            {listError && <p className="err">{listError}</p>}
+            <form action={saveGoogle.bind(null, client.id)} style={{ display: "grid", gap: 10 }}>
+              <label className="field" style={{ display: "grid", gap: 4, fontSize: 13.5 }}>Google Ads account (Local Services Ads come from this account too)
+                <select name="google_ads" defaultValue={adsInt?.externalId ?? ""}>
+                  <option value="">Not connected</option>
+                  {adsInt?.externalId && !adsAccounts.some((a) => a.id === adsInt.externalId) && <option value={adsInt.externalId}>{adsInt.externalId}</option>}
+                  {adsAccounts.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.id.replace(/(\d{3})(\d{3})(\d+)/, "$1-$2-$3")}</option>)}
+                </select></label>
+              <label className="field" style={{ display: "grid", gap: 4, fontSize: 13.5 }}>Search Console property
+                <select name="gsc" defaultValue={gscGuess}>
+                  <option value="">Not connected</option>
+                  {gscInt?.externalId && !gscSites.includes(gscInt.externalId) && <option value={gscInt.externalId}>{gscInt.externalId}</option>}
+                  {gscSites.map((u) => <option key={u} value={u}>{u}</option>)}
+                </select></label>
+              <div className="filters"><button className="btn" type="submit">Save and sync</button>
+                {(adsInt || gscInt) && <button className="pill" type="submit" formAction={syncGoogleNow.bind(null, client.id)}>Sync now</button>}</div>
+            </form>
+            {g === "saved" && <p className="notice">Saved and synced.</p>}
+            {[adsInt && ["Google Ads", adsInt], gscInt && ["Search Console", gscInt]].filter(Boolean).map((x) => {
+              const [label, i] = x as [string, typeof ints[number]];
+              return <div className="check" key={label}><i className="sd" style={{ background: i.lastSyncError ? "var(--bad)" : i.lastSyncAt ? "var(--good)" : "var(--warn)" }} />
+                <div><b>{label}</b><span>{i.lastSyncError ? `Last sync failed: ${i.lastSyncError}` : i.lastSyncAt ? `Synced ${ago(i.lastSyncAt)} · syncs every night` : "Waiting for first sync"}</span></div></div>;
+            })}
+          </>)}
+      </section>
 
       <section className="panel">
         <div className="ph"><h2>Client logins</h2><span>owners can edit lead status and value · viewers can only look</span></div>

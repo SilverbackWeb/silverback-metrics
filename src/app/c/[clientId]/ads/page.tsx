@@ -14,20 +14,25 @@ export default async function Ads({ params, searchParams }: { params: Promise<{ 
   const mo = resolveMonth((await searchParams).m, tz);
   const { start, end } = monthRange(mo.ym, tz);
   const day = (d: Date) => d.toISOString().slice(0, 10);
-  const [leads, spend] = await Promise.all([
+  const [leads, allSpend] = await Promise.all([
     leadsInMonth(client.id, mo.ym, tz),
     db.select({
       campaignId: schema.adsDaily.campaignId, name: sql<string>`max(${schema.adsDaily.campaignName})`,
       clicks: sql<number>`sum(${schema.adsDaily.clicks})::int`, cost: sql<number>`sum(${schema.adsDaily.costMicros})::float8`,
-      conv: sql<number>`sum(${schema.adsDaily.conversions})::float8`,
+      conv: sql<number>`sum(${schema.adsDaily.conversions})::float8`, type: sql<string>`max(${schema.adsDaily.channelType})`,
     }).from(schema.adsDaily)
       .where(and(eq(schema.adsDaily.clientId, client.id), gte(schema.adsDaily.day, day(start)), lt(schema.adsDaily.day, day(end))))
       .groupBy(schema.adsDaily.campaignId),
   ]);
+  const spend = allSpend.filter((r) => r.type !== "LOCAL_SERVICES");
+  const lsaSpend = allSpend.filter((r) => r.type === "LOCAL_SERVICES").reduce((a, r) => a + r.cost / 1e6, 0);
+  const lsaLeads = leads.filter((l) => l.channel === "local_services");
+  const lsa = summarize(lsaLeads);
+  const hasLsa = lsaSpend > 0 || lsaLeads.length > 0;
   const adLeads = leads.filter((l) => l.channel === "google_ads");
   const s = summarize(adLeads);
   const totalCost = spend.reduce((a, r) => a + r.cost / 1e6, 0);
-  const connected = spend.length > 0;
+  const connected = allSpend.length > 0;
 
   // Leads per campaign: by the campaign Google Ads resolved for the click, else the utm_campaign on the link.
   const byCamp = new Map<string, typeof adLeads>();
@@ -75,7 +80,15 @@ export default async function Ads({ params, searchParams }: { params: Promise<{ 
         </section>
       )}
       <section className="panel"><div className="ph"><h2>Local Services Ads</h2><span>Google Guaranteed / Screened</span></div>
-        <p className="empty">Coming with the Google Ads connection: Local Services leads (calls and messages), spend, and cost per lead. They come from the same Google Ads account.</p>
+        {!hasLsa ? <p className="empty">{connected ? `No Local Services activity in ${monthLabel(mo.ym)}.` : "Local Services leads (calls and messages), spend and cost per lead show here once the Google Ads account is connected."}</p> : (<>
+          <div className="kpis">
+            <div className="kpi"><span className="l">LSA spend</span><span className="v">{money(lsaSpend * 100)}</span><span className="d">charged leads only</span></div>
+            <div className="kpi"><span className="l">LSA leads</span><span className="v">{lsa.leads}</span><span className="d">{lsa.calls} calls · {lsaLeads.filter((l) => l.type === "chat").length} messages</span></div>
+            <div className="kpi"><span className="l">Cost per LSA lead</span><span className="v">{lsa.leads ? money((lsaSpend / lsa.leads) * 100) : "—"}</span><span className="d">spend ÷ leads</span></div>
+            <div className="kpi"><span className="l">Won revenue</span><span className="v">{money(lsa.wonCents)}</span><span className="d">{lsa.won} job{lsa.won === 1 ? "" : "s"}</span></div>
+          </div>
+          <p className="foot"><Link href={`/c/${client.id}/leads?m=${mo.ym}&ch=local_services`}>See Local Services leads →</Link></p>
+        </>)}
       </section>
       <p className="foot"><Link href={`/c/${client.id}/leads?m=${mo.ym}&ch=google_ads`}>See every ad lead →</Link></p>
     </ClientShell>

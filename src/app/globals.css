@@ -3,7 +3,7 @@
   --bg:#F1F2F5; --surface:#FFFFFF; --surface-2:#F5F6F9; --line:#DFE2EA;
   --fg:#1C1F28; --muted:#5E6476; --accent:#C46600; --accent-fill:#ED7F03; --accent-soft:rgba(237,127,3,.12);
   --good:#1E8A54; --warn:#A06E00; --bad:#C23E2C;
-  --c-google_ads:#2F6FD0; --c-gbp:#D97300; --c-organic_search:#1E8A54; --c-direct:#7A8094; --c-referral:#8E4FC4;
+  --c-google_ads:#2F6FD0; --c-local_services:#1F8F8A; --c-gbp:#D97300; --c-organic_search:#1E8A54; --c-direct:#7A8094; --c-referral:#8E4FC4;
   --c-organic_social:#1E9A9E; --c-paid_social:#C2477A; --c-microsoft_ads:#4B8FA8; --c-email:#6E7F2E; --c-other_campaign:#A0663A;
   --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
   --body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -13,7 +13,7 @@
   --bg:#13151B; --surface:#1D2029; --surface-2:#252935; --line:#333847;
   --fg:#F2F0EC; --muted:#9BA0AF; --accent:#F29A35; --accent-soft:rgba(237,127,3,.18);
   --good:#46C384; --warn:#E9B43C; --bad:#EA6650;
-  --c-google_ads:#5B9BF0; --c-gbp:#ED8F2A; --c-organic_search:#46C384; --c-direct:#9BA0AF; --c-referral:#C58AF0;
+  --c-google_ads:#5B9BF0; --c-local_services:#5CC9C2; --c-gbp:#ED8F2A; --c-organic_search:#46C384; --c-direct:#9BA0AF; --c-referral:#C58AF0;
   --c-organic_social:#7FD3D6; --c-paid_social:#E57AA6; --c-microsoft_ads:#7DBAD1; --c-email:#A9BC5C; --c-other_campaign:#D49A6A;
   color-scheme:dark;
 }}

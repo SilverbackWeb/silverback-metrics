@@ -22,6 +22,7 @@ export type Touch = {
 
 export type Channel =
   | "google_ads"
+  | "local_services"
   | "gbp"
   | "paid_social"
   | "microsoft_ads"
@@ -34,6 +35,7 @@ export type Channel =
 
 export const CHANNEL_LABELS: Record<Channel, string> = {
   google_ads: "Google Ads",
+  local_services: "Local Services Ads",
   gbp: "Google Business Profile",
   paid_social: "Paid Social",
   microsoft_ads: "Microsoft Ads",

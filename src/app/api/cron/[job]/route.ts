@@ -4,8 +4,9 @@
  */
 import { seoHourly } from "@/lib/seo";
 import { heatmapsDue } from "@/lib/heatmap";
+import { googleHourly } from "@/lib/google-sync";
 
-const JOBS = new Set(["nightly-sync", "monthly-heatmaps", "seo-hourly"]);
+const JOBS = new Set(["nightly-sync", "monthly-heatmaps", "seo-hourly", "google-hourly"]);
 
 export async function POST(req: Request, ctx: { params: Promise<{ job: string }> }) {
   const { job } = await ctx.params;
@@ -15,6 +16,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ job: string }>
   }
   if (!JOBS.has(job)) return new Response("unknown job", { status: 404 });
 
+  if (job === "google-hourly") return Response.json({ ok: true, job, synced: await googleHourly() });
   if (job === "seo-hourly") {
     const seo = await seoHourly();
     const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
