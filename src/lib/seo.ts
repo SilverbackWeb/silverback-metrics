@@ -51,7 +51,8 @@ export async function runRankCheck(clientId: string) {
     }
     await db.update(schema.clients).set({ rankCheckedAt: new Date(), rankCheckError: null, gbpPlaces: places }).where(eq(schema.clients.id, client.id));
   } catch (e) {
-    await db.update(schema.clients).set({ rankCheckedAt: new Date(), rankCheckError: (e as Error).message.slice(0, 300) }).where(eq(schema.clients.id, client.id));
+    // Retry in about a day (the weekly schedule counts from rankCheckedAt).
+    await db.update(schema.clients).set({ rankCheckedAt: new Date(Date.now() - 6 * DAY), rankCheckError: (e as Error).message.slice(0, 300) }).where(eq(schema.clients.id, client.id));
   }
 }
 

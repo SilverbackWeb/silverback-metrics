@@ -105,22 +105,31 @@ describe("rank check and SEO page", () => {
     expect(scanStats(scan.points)).toMatchObject({ top3: 49 > 0 ? Math.round((24 / 49) * 100) : 0, found: 24 });
   });
 
-  it("renders for the team (with editing) and for the client (read only)", async () => {
+  it("renders SEO, Local & Maps and Ads for the team (with editing) and the client (read only)", async () => {
     const { signSession } = await import("@/lib/session");
     const { default: Seo } = await import("@/app/c/[clientId]/seo/page");
+    const { default: Local } = await import("@/app/c/[clientId]/local/page");
+    const { default: Ads } = await import("@/app/c/[clientId]/ads/page");
     const p = { params: Promise.resolve({ clientId }), searchParams: Promise.resolve({}) };
     holder.token = await signSession({ userId: agencyId, name: "Team", agency: true });
-    const team = renderToString(await Seo(p));
-    expect(team).toContain("electrician kirkwood");
-    expect(team).toContain("#2");
-    expect(team).toContain("Add keywords");
-    expect(team).toContain("On page 1 of Google");
-    expect(team).toContain("Google Maps heat map");
-    expect(team).toContain("Top 3 coverage");
+    const seo = renderToString(await Seo(p));
+    expect(seo).toContain("electrician kirkwood");
+    expect(seo).toContain("#2");
+    expect(seo).toContain("Add keywords");
+    expect(seo).toContain("On page 1 of Google");
+    expect(seo).toContain("Search Console isn");
+    const local = renderToString(await Local(p));
+    expect(local).toContain("Google Maps heat map");
+    expect(local).toContain("Top 3 coverage");
+    expect(local).toContain("Maps listing found");
+    expect(local).toContain("Local &amp; Maps");
+    const ads = renderToString(await Ads(p));
+    expect(ads).toContain("Google Ads isn");
+    expect(ads).toContain("Local Services Ads");
     holder.token = await signSession({ userId: ownerId, name: "Owner", agency: false });
-    const client = renderToString(await Seo(p));
+    const client = renderToString(await Seo(p)) + renderToString(await Local(p));
     expect(client).toContain("electrician kirkwood");
     expect(client).not.toContain("Add keywords");
-    expect(client).not.toContain("Ranking settings");
+    expect(client).not.toContain("Save locations");
   });
 });

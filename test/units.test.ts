@@ -75,3 +75,13 @@ describe("heat map grid", () => {
     expect((pts[3].lat - 38.58) * 69).toBeCloseTo(5, 1);
   });
 });
+
+describe("locations", () => {
+  it("turns 'Kirkwood, MO' into DataForSEO's location name", async () => {
+    const { normalizeLocation } = await import("@/lib/locations");
+    expect(normalizeLocation("Kirkwood, MO")).toBe("Kirkwood,Missouri,United States");
+    expect(normalizeLocation("st louis, mo")).toBe("Saint Louis,Missouri,United States");
+    expect(normalizeLocation("Arnold,Missouri,United States")).toBe("Arnold,Missouri,United States");
+    expect(normalizeLocation("  ")).toBeNull();
+  });
+});
