@@ -18,6 +18,7 @@ export default async function LeadPage({ params }: { params: Promise<{ clientId:
   const edits = await db.select().from(schema.leadEdits).where(eq(schema.leadEdits.leadId, lead.id)).orderBy(desc(schema.leadEdits.createdAt)).limit(20);
   const when = new Intl.DateTimeFormat("en-US", { timeZone: client.timezone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const steps = journeySteps(lead.firstTouch as Touch | null, lead.lastTouch as Touch | null, lead);
+  const callInfo = lead.raw as { callrailSource?: string; trackingNumber?: string; firstCall?: boolean | null; keyword?: string } | null;
   const action = updateLead.bind(null, client.id, lead.id);
   const fieldName: Record<string, string> = { status: "status", value: "lead value", sale: "sale amount" };
 
@@ -37,7 +38,7 @@ export default async function LeadPage({ params }: { params: Promise<{ clientId:
               <li key={i}><i className="dot" style={{ background: s.channel === "lead" ? "var(--accent-fill)" : chColor(s.channel) }} />
                 <div><b>{s.title}</b><span>{[s.at ? when.format(s.at) : null, s.detail].filter(Boolean).join(" · ")}</span></div></li>
             ))}</ol>
-            {!lead.firstTouch && !lead.lastTouch && <p className="vsub" style={{ margin: 0 }}>No tracking data came with this lead. Check that the form has the hidden sb_data field.</p>}
+            {!lead.firstTouch && !lead.lastTouch && lead.type !== "call" && <p className="vsub" style={{ margin: 0 }}>No tracking data came with this lead. Check that the form has the hidden sb_data field.</p>}
             {(lead.adsCampaignName || lead.adsKeyword) && <dl className="kv"><dt>Campaign</dt><dd>{lead.adsCampaignName}</dd><dt>Keyword</dt><dd>{lead.adsKeyword}</dd></dl>}
           </section>
           <section className="panel">
@@ -47,6 +48,9 @@ export default async function LeadPage({ params }: { params: Promise<{ clientId:
               {lead.email && <><dt>Email</dt><dd>{lead.email}</dd></>}
               {lead.message && <><dt>Message</dt><dd>{lead.message}</dd></>}
               {lead.pageUrl && <><dt>Form page</dt><dd>{lead.pageUrl}</dd></>}
+              {lead.type === "call" && callInfo?.callrailSource && <><dt>CallRail source</dt><dd>{callInfo.callrailSource}{callInfo.keyword ? ` · ${callInfo.keyword}` : ""}</dd></>}
+              {lead.type === "call" && callInfo?.trackingNumber && <><dt>Number they called</dt><dd>{callInfo.trackingNumber}</dd></>}
+              {lead.type === "call" && callInfo?.firstCall != null && <><dt>First-time caller</dt><dd>{callInfo.firstCall ? "Yes" : "No, they've called before"}</dd></>}
               {lead.recordingUrl && <><dt>Recording</dt><dd><a href={lead.recordingUrl} target="_blank" rel="noreferrer">Listen</a></dd></>}
               {lead.spamReasons && lead.spamReasons.length > 0 && <><dt>Spam check</dt><dd>{lead.spamReasons.join(", ")}</dd></>}
             </dl>

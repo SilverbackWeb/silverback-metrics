@@ -157,9 +157,11 @@ export const leads = pgTable("leads", {
   valueCents: integer("value_cents"),
   saleCents: integer("sale_cents"),
   offlineConversionSentAt: timestamp("offline_conversion_sent_at", { withTimezone: true }),
+  externalId: text("external_id"), // the source system's ID (CallRail call ID), so webhook retries don't duplicate
   raw: jsonb("raw"),
   createdAt: created(),
 }, (t) => [
+  uniqueIndex("leads_client_source_ext").on(t.clientId, t.source, t.externalId),
   index("leads_client_created").on(t.clientId, t.createdAt),
   index("leads_visitor").on(t.visitorId),
   index("leads_gclid").on(t.gclid),

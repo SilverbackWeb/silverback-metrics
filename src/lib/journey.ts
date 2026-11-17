@@ -20,7 +20,7 @@ export function describeTouch(t: Touch) {
   return parts.join(" · ");
 }
 
-export function journeySteps(ft: Touch | null, lt: Touch | null, lead: { type: string; createdAt: Date; callDurationSec: number | null; formName: string | null }): Step[] {
+export function journeySteps(ft: Touch | null, lt: Touch | null, lead: { type: string; createdAt: Date; callDurationSec: number | null; formName: string | null; channel?: string | null; raw?: unknown }): Step[] {
   const steps: Step[] = [];
   const same = ft && lt && ft.ts === lt.ts && ft.landing === lt.landing;
   if (ft && !same) {
@@ -29,8 +29,13 @@ export function journeySteps(ft: Touch | null, lt: Touch | null, lead: { type: s
   }
   const last = lt ?? ft;
   if (last) {
-    const ch = classify(last);
+    // The lead's stored channel wins: for calls it may come from CallRail's own source label.
+    const ch = lead.channel && label[lead.channel] ? lead.channel : classify(last);
     steps.push({ channel: ch, title: `${ft && !same ? "Came back" : "Arrived"} · ${label[ch]}`, detail: describeTouch(last), at: last.ts ? new Date(last.ts) : null });
+  }
+  if (!last && lead.type === "call" && lead.channel && label[lead.channel]) {
+    const src = (lead.raw as { callrailSource?: string } | null)?.callrailSource;
+    steps.push({ channel: lead.channel, title: `Found you · ${label[lead.channel]}`, detail: src ? `CallRail source: ${src}` : "", at: null });
   }
   const dur = lead.callDurationSec;
   steps.push({

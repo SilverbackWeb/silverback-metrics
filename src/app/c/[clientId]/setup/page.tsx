@@ -81,6 +81,8 @@ export default async function Setup({ params, searchParams }: { params: Promise<
   const [last] = await db.select().from(schema.leads).where(eq(schema.leads.clientId, client.id)).orderBy(desc(schema.leads.createdAt)).limit(1);
   const [withAttr] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.leads)
     .where(and(eq(schema.leads.clientId, client.id), sql`${schema.leads.lastTouch} is not null`));
+  const [lastCall] = await db.select({ createdAt: schema.leads.createdAt }).from(schema.leads)
+    .where(and(eq(schema.leads.clientId, client.id), eq(schema.leads.source, "callrail"))).orderBy(desc(schema.leads.createdAt)).limit(1);
   const members = await db.select({ id: schema.users.id, email: schema.users.email, name: schema.users.name, role: schema.memberships.role, lastLoginAt: schema.users.lastLoginAt })
     .from(schema.memberships).innerJoin(schema.users, eq(schema.memberships.userId, schema.users.id))
     .where(eq(schema.memberships.clientId, client.id));
@@ -102,13 +104,16 @@ export default async function Setup({ params, searchParams }: { params: Promise<
             s.lastFieldSeenAt ? `Last found ${ago(s.lastFieldSeenAt)}` : "Not found yet. Add a Hidden field with ID sb_data to each Elementor form."],
           [last ? (withAttr.n > 0 ? "good" : "warn") : "bad", "Leads arriving with their source",
             last ? `${withAttr.n} lead${withAttr.n === 1 ? "" : "s"} with tracking data · last lead ${ago(last.createdAt)}` : "No leads yet. Submit a test lead with ?utm_source=test on the URL."],
+          [lastCall ? "good" : "warn", "CallRail calls arriving",
+            lastCall ? `Last call ${ago(lastCall.createdAt)}` : "No calls yet. Skip this if the client doesn't use CallRail."],
         ];
         const hook = `${base}/api/ingest/elementor/${s.siteKey}?token=${s.ingestToken}`;
+        const callHook = `${base}/api/ingest/callrail/${s.siteKey}?token=${s.ingestToken}`;
         return (
           <div className="cols" key={s.id}>
             <section className="panel"><div className="ph"><h2>Health checks · {s.domain}</h2><span>{checks.filter((c) => c[0] === "good").length} of {checks.length} passing</span></div>
               <div>{checks.map(([st, t, d]) => <div className="check" key={t}><i className="sd" style={{ background: col[st] }} /><div><b>{t}</b><span>{d}</span></div></div>)}</div>
-              <p className="vsub" style={{ margin: 0, fontSize: 12.5 }}>Google Analytics, Ads, Business Profile and call checks are added with those connections.</p>
+              <p className="vsub" style={{ margin: 0, fontSize: 12.5 }}>Google Analytics, Ads and Business Profile checks are added with those connections.</p>
             </section>
             <section className="panel"><div className="ph"><h2>Install</h2></div>
               <p style={{ margin: 0, fontSize: 13.5 }}>1. Paste in the site header (Elementor → Custom Code):</p>
@@ -116,7 +121,9 @@ export default async function Setup({ params, searchParams }: { params: Promise<
               <p style={{ margin: 0, fontSize: 13.5 }}>2. On every Elementor form, add a <b>Hidden</b> field with ID <b>sb_data</b>.</p>
               <p style={{ margin: 0, fontSize: 13.5 }}>3. Add a <b>Webhook</b> action with this URL and turn on <b>Advanced Data</b>:</p>
               <pre className="snip">{hook}</pre>
-              <p className="vsub" style={{ margin: 0, fontSize: 12.5 }}>Keep the webhook URL private: it lets anyone post leads to this client.</p>
+              <p style={{ margin: 0, fontSize: 13.5 }}>4. If the client uses CallRail: in CallRail go to <b>Settings → Integrations → Webhooks</b> and paste this as the <b>Post-Call</b> webhook:</p>
+              <pre className="snip">{callHook}</pre>
+              <p className="vsub" style={{ margin: 0, fontSize: 12.5 }}>Keep these webhook URLs private: they let anyone post leads to this client.</p>
             </section>
           </div>
         );
