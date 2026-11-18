@@ -56,7 +56,7 @@ export async function runRankCheck(clientId: string) {
   }
 }
 
-/** Save every keyword the site ranks for in the top 20 (one DataForSEO Labs call). */
+/** Save every keyword the site ranks for in the top 100 (one DataForSEO Labs call). */
 export async function runRankedSnapshot(clientId: string) {
   const [client] = await db.select().from(schema.clients).where(eq(schema.clients.id, clientId)).limit(1);
   if (!client) return;
@@ -135,9 +135,29 @@ export async function rankedSummary(clientId: string) {
   const byVol = (a: (typeof now)[number], b: (typeof now)[number]) => (b.searchVolume ?? 0) - (a.searchVolume ?? 0) || a.position - b.position;
   return {
     day: days[0].day, prevDay: days[1]?.day ?? null,
-    top3: count(now, 3), page1: count(now, 10), page2: now.length - count(now, 10),
+    top3: count(now, 3), page1: count(now, 10), page2: count(now, 20) - count(now, 10), total: now.length,
     prevTop3: prev ? count(prev, 3) : null, prevPage1: prev ? count(prev, 10) : null,
     page1Rows: now.filter((r) => r.position <= 10).sort(byVol),
-    almostRows: now.filter((r) => r.position > 10).sort(byVol).slice(0, 25),
+    almostRows: now.filter((r) => r.position > 10 && r.position <= 20).sort(byVol).slice(0, 25),
   };
+}
+
+export type KeywordRow = { keyword: string; position: number | null; prev: number | null | undefined; change: number | null; url: string | null; searchVolume: number | null; etv: number | null };
+
+/** Every keyword in the latest snapshot, with the change since the previous one, plus keywords that dropped out. */
+export async function allKeywords(clientId: string) {
+  const days = await db.selectDistinct({ day: schema.rankedKeywords.day }).from(schema.rankedKeywords)
+    .where(eq(schema.rankedKeywords.clientId, clientId)).orderBy(desc(schema.rankedKeywords.day)).limit(2);
+  if (!days.length) return null;
+  const load = (day: string) => db.select().from(schema.rankedKeywords).where(and(eq(schema.rankedKeywords.clientId, clientId), eq(schema.rankedKeywords.day, day)));
+  const [now, prev] = await Promise.all([load(days[0].day), days[1] ? load(days[1].day) : Promise.resolve(null)]);
+  const before = new Map((prev ?? []).map((r) => [r.keyword, r]));
+  const rows: KeywordRow[] = now.map((r) => {
+    const p = before.get(r.keyword);
+    return { keyword: r.keyword, position: r.position, prev: prev ? (p?.position ?? null) : undefined, change: p ? p.position - r.position : null, url: r.url, searchVolume: r.searchVolume, etv: r.etv };
+  });
+  const seen = new Set(now.map((r) => r.keyword));
+  const lost: KeywordRow[] = (prev ?? []).filter((r) => !seen.has(r.keyword))
+    .map((r) => ({ keyword: r.keyword, position: null, prev: r.position, change: null, url: r.url, searchVolume: r.searchVolume, etv: null }));
+  return { day: days[0].day, prevDay: days[1]?.day ?? null, rows, lost };
 }

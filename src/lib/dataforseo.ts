@@ -64,7 +64,7 @@ export function findMaps(result: Json, domain: string, name: string | null, cid?
 
 export type RankedKeyword = { keyword: string; position: number; url: string | null; searchVolume: number | null; etv: number | null };
 
-/** Every keyword where the site ranks in Google's top 20 (DataForSEO Labs, US data). */
+/** Every keyword where the site ranks in Google's top 100 (DataForSEO Labs, US data). */
 export function parseRanked(result: Json): RankedKeyword[] {
   const out: RankedKeyword[] = [];
   for (const it of result.items ?? []) {
@@ -91,8 +91,8 @@ export function mapsTask(keyword: string, location: string) {
 }
 export function rankedTask(domain: string) {
   return {
-    target: cleanDomain(domain), location_name: "United States", language_code: "en", limit: 500,
-    filters: [["ranked_serp_element.serp_item.rank_group", "<=", 20]],
+    target: cleanDomain(domain), location_name: "United States", language_code: "en", limit: 1000,
+    filters: [["ranked_serp_element.serp_item.rank_group", "<=", 100]],
     order_by: ["keyword_data.keyword_info.search_volume,desc"],
   };
 }

@@ -96,7 +96,7 @@ export default async function Seo({ params, searchParams }: { params: Promise<{ 
       </section>
 
       <section className="panel">
-        <div className="ph"><h2>Keywords on page 1 of Google</h2><span>{ranked ? `${ranked.page1} keywords · as of ${ranked.day}` : "monthly"}</span></div>
+        <div className="ph"><h2>Keywords on page 1 of Google</h2><span>{ranked ? <>{ranked.page1} keywords · as of {ranked.day} · <a href={`/c/${client.id}/seo/keywords`}>Show all {ranked.total} keywords →</a></> : "monthly"}</span></div>
         {!ranked ? <p className="empty">The first report appears after the first rankings check.</p> : (
           <div className="tbl"><table>
             <thead><tr><th>Keyword</th><th className="n">Position</th><th className="n hide-s">Searches / mo</th><th className="hide-s">Page</th></tr></thead>
@@ -110,6 +110,7 @@ export default async function Seo({ params, searchParams }: { params: Promise<{ 
           <p className="sect" style={{ marginTop: 8 }}>Almost there · page 2</p>
           <div className="tbl"><table><tbody>{ranked.almostRows.map((r) => <tr key={r.keyword}><td>{r.keyword}</td><td className="n">#{r.position}</td><td className="n hide-s">{fmtN(r.searchVolume)}</td><td className="hide-s">{path(r.url)}</td></tr>)}</tbody></table></div>
         </>)}
+        {ranked && <div><a className="pill" href={`/c/${client.id}/seo/keywords`}>Show all {ranked.total} keywords</a></div>}
         <p className="vsub" style={{ margin: 0, fontSize: 12.5 }}>From DataForSEO&apos;s nationwide Google data, refreshed monthly. The tracked keywords above are checked from each location.</p>
       </section>
     </ClientShell>

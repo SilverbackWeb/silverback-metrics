@@ -85,3 +85,22 @@ describe("locations", () => {
     expect(normalizeLocation("  ")).toBeNull();
   });
 });
+
+describe("all keywords table", () => {
+  it("filters and sorts", async () => {
+    const { filterSort } = await import("@/lib/keyword-table");
+    const rows = [
+      { keyword: "electrician", position: 2, prev: 5, change: 3, url: null, searchVolume: 900, etv: 50 },
+      { keyword: "panel upgrade", position: 14, prev: 9, change: -5, url: null, searchVolume: 100, etv: 2 },
+      { keyword: "ev charger install", position: 40, prev: null, change: null, url: null, searchVolume: 300, etv: 0 },
+    ];
+    const lost = [{ keyword: "generator", position: null, prev: 8, change: null, url: null, searchVolume: 50, etv: null }];
+    expect(filterSort(rows, lost, "all", "volume", "").map((r) => r.keyword)).toEqual(["electrician", "ev charger install", "panel upgrade"]);
+    expect(filterSort(rows, lost, "page2", "volume", "").map((r) => r.keyword)).toEqual(["panel upgrade"]);
+    expect(filterSort(rows, lost, "up", "volume", "")).toHaveLength(1);
+    expect(filterSort(rows, lost, "new", "volume", "")[0].keyword).toBe("ev charger install");
+    expect(filterSort(rows, lost, "lost", "volume", "")[0].keyword).toBe("generator");
+    expect(filterSort(rows, lost, "all", "position", "").map((r) => r.position)).toEqual([2, 14, 40]);
+    expect(filterSort(rows, lost, "all", "volume", "PANEL")).toHaveLength(1);
+  });
+});

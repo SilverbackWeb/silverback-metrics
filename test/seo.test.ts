@@ -123,6 +123,15 @@ describe("rank check and SEO page", () => {
     expect(local).toContain("Top 3 coverage");
     expect(local).toContain("Maps listing found");
     expect(local).toContain("Local &amp; Maps");
+    const { default: All } = await import("@/app/c/[clientId]/seo/keywords/page");
+    const all = renderToString(await All({ params: Promise.resolve({ clientId }), searchParams: Promise.resolve({ sort: "position" }) }));
+    expect(all).toContain("All ranking keywords");
+    expect(all).toContain("panel upgrade");
+    expect(seo).toContain("Show all");
+    const { GET } = await import("@/app/c/[clientId]/seo/keywords.csv/route");
+    const csv = await (await GET(new Request("https://x/"), { params: Promise.resolve({ clientId }) })).text();
+    expect(csv.split("\n")[0]).toBe("keyword,position,previous_position,change,monthly_searches,est_monthly_visits,url");
+    expect(csv).toContain("electrician kirkwood,3");
     const ads = renderToString(await Ads(p));
     expect(ads).toContain("Google Ads isn");
     expect(ads).toContain("Local Services Ads");
