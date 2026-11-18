@@ -1,9 +1,9 @@
 /**
  * First-cut data model. See docs/PLAN.md section 13.
- * Every client-facing query must be scoped by clientId (see src/db/scope.ts, phase 1).
+ * Every client-facing query must be scoped by clientId (see src/lib/access.ts).
  */
 import {
-  pgTable, pgEnum, uuid, text, timestamp, jsonb, integer, boolean, date, numeric,
+  pgTable, pgEnum, uuid, text, timestamp, jsonb, integer, boolean, date, bigint,
   index, uniqueIndex, primaryKey, doublePrecision,
 } from "drizzle-orm/pg-core";
 
@@ -22,6 +22,8 @@ export const users = pgTable("users", {
   name: text("name"),
   isAgency: boolean("is_agency").default(false).notNull(), // agency staff see all clients
   agencyRole: roleEnum("agency_role"),
+  passwordHash: text("password_hash"),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   createdAt: created(),
 });
 
@@ -35,6 +37,15 @@ export const clients = pgTable("clients", {
   defaultCallValueCents: integer("default_call_value_cents").default(0).notNull(),
   minCallSecondsForLead: integer("min_call_seconds_for_lead").default(60).notNull(),
   clientsCanEditLeads: boolean("clients_can_edit_leads").default(true).notNull(),
+  // SEO: where to check rankings (DataForSEO location names, e.g. "Kirkwood,Missouri,United States"),
+  // and how to spot the client's Google Business Profile in Maps results.
+  rankLocations: jsonb("rank_locations").$type<string[]>().default([]).notNull(),
+  gbpName: text("gbp_name"),
+  // The listing found in Maps for each rank location: heat maps are centered on it and match it by CID.
+  gbpPlaces: jsonb("gbp_places").$type<Record<string, { lat: number; lng: number; cid: string | null; title: string | null }>>().default({}).notNull(),
+  rankCheckedAt: timestamp("rank_checked_at", { withTimezone: true }),
+  rankCheckError: text("rank_check_error"),
+  rankedSnapshotAt: timestamp("ranked_snapshot_at", { withTimezone: true }),
   createdAt: created(),
 });
 
@@ -155,13 +166,27 @@ export const leads = pgTable("leads", {
   valueCents: integer("value_cents"),
   saleCents: integer("sale_cents"),
   offlineConversionSentAt: timestamp("offline_conversion_sent_at", { withTimezone: true }),
+  externalId: text("external_id"), // the source system's ID (CallRail call ID), so webhook retries don't duplicate
   raw: jsonb("raw"),
   createdAt: created(),
 }, (t) => [
+  uniqueIndex("leads_client_source_ext").on(t.clientId, t.source, t.externalId),
   index("leads_client_created").on(t.clientId, t.createdAt),
   index("leads_visitor").on(t.visitorId),
   index("leads_gclid").on(t.gclid),
 ]);
+
+/** Who changed a lead's status or value, and when (clients and team can both edit). */
+export const leadEdits = pgTable("lead_edits", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  leadId: uuid("lead_id").notNull().references(() => leads.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  userName: text("user_name"),
+  field: text("field").notNull(), // status | value | sale
+  oldValue: text("old_value"),
+  newValue: text("new_value"),
+  createdAt: created(),
+}, (t) => [index("lead_edits_lead").on(t.leadId, t.createdAt)]);
 
 // ---------- synced metrics (phase 2-3) ----------
 
@@ -172,9 +197,29 @@ export const adsDaily = pgTable("ads_daily", {
   campaignName: text("campaign_name"),
   impressions: integer("impressions").default(0).notNull(),
   clicks: integer("clicks").default(0).notNull(),
-  costMicros: numeric("cost_micros", { mode: "bigint" }).default(0n).notNull(),
+  costMicros: bigint("cost_micros", { mode: "number" }).default(0).notNull(),
   conversions: doublePrecision("conversions").default(0).notNull(),
+  channelType: text("channel_type").default("").notNull(), // SEARCH, PERFORMANCE_MAX, LOCAL_SERVICES, ...
 }, (t) => [primaryKey({ columns: [t.clientId, t.day, t.campaignId] })]);
+
+/** Silverback's one Google sign-in (agency account): covers Google Ads, Local Services, Search Console. */
+export const googleAuth = pgTable("google_auth", {
+  id: text("id").primaryKey(), // always "agency"
+  email: text("email"),
+  refreshTokenEnc: text("refresh_token_enc").notNull(),
+  scopes: text("scopes"),
+  connectedAt: timestamp("connected_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/** Top Search Console searches and pages for the last 28 days, replaced on each sync. */
+export const gscTop = pgTable("gsc_top", {
+  clientId: uuid("client_id").notNull().references(() => clients.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(), // query | page
+  key: text("key").notNull(),
+  clicks: integer("clicks").default(0).notNull(),
+  impressions: integer("impressions").default(0).notNull(),
+  position: doublePrecision("position"),
+}, (t) => [primaryKey({ columns: [t.clientId, t.kind, t.key] })]);
 
 export const ga4Daily = pgTable("ga4_daily", {
   clientId: uuid("client_id").notNull().references(() => clients.id, { onDelete: "cascade" }),
@@ -214,15 +259,29 @@ export const rankKeywords = pgTable("rank_keywords", {
   locationCode: integer("location_code"), // DataForSEO location
   trackOrganic: boolean("track_organic").default(true).notNull(),
   trackMaps: boolean("track_maps").default(true).notNull(),
-});
+  createdAt: created(),
+}, (t) => [uniqueIndex("rank_keywords_client_kw").on(t.clientId, t.keyword)]);
 
 export const rankResults = pgTable("rank_results", {
   keywordId: uuid("keyword_id").notNull().references(() => rankKeywords.id, { onDelete: "cascade" }),
   day: date("day").notNull(),
   engine: text("engine").notNull(), // organic | maps
+  location: text("location").default("").notNull(),
   position: integer("position"),     // null = not in results
   url: text("url"),
-}, (t) => [primaryKey({ columns: [t.keywordId, t.day, t.engine] })]);
+  checkedAt: timestamp("checked_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [primaryKey({ columns: [t.keywordId, t.day, t.engine, t.location] })]);
+
+/** Every keyword the client's site shows up for in Google (DataForSEO Labs), saved per snapshot. */
+export const rankedKeywords = pgTable("ranked_keywords", {
+  clientId: uuid("client_id").notNull().references(() => clients.id, { onDelete: "cascade" }),
+  day: date("day").notNull(),
+  keyword: text("keyword").notNull(),
+  position: integer("position").notNull(),
+  url: text("url"),
+  searchVolume: integer("search_volume"),
+  etv: doublePrecision("etv"), // estimated monthly visits from this keyword
+}, (t) => [primaryKey({ columns: [t.clientId, t.day, t.keyword] })]);
 
 export const heatmapScans = pgTable("heatmap_scans", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -233,7 +292,10 @@ export const heatmapScans = pgTable("heatmap_scans", {
   gridSize: integer("grid_size").default(7).notNull(),
   radiusMiles: doublePrecision("radius_miles").default(5).notNull(),
   targetCid: text("target_cid"), // the client's Google Maps CID / place ID
+  location: text("location").default("").notNull(), // which rank location (GBP listing) this scan is for
+  token: text("token"),              // checked on DataForSEO's postback
   status: text("status").default("queued").notNull(),
+  error: text("error"),
   createdAt: created(),
 });
 

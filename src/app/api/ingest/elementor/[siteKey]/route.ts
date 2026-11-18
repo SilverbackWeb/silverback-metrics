@@ -6,11 +6,12 @@ import { db, schema } from "@/db";
 import { classify } from "@/lib/attribution";
 import { parseElementor, spamScore } from "@/lib/elementor";
 import { siteByKeyAndToken } from "@/lib/touches";
+import { respondWithin, withRetry } from "@/lib/background";
 
-export async function POST(req: Request, ctx: { params: Promise<{ siteKey: string }> }) {
+async function handle(req: Request, ctx: { params: Promise<{ siteKey: string }> }) {
   const { siteKey } = await ctx.params;
   const token = new URL(req.url).searchParams.get("token");
-  const site = await siteByKeyAndToken(siteKey, token);
+  const site = await withRetry(() => siteByKeyAndToken(siteKey, token));
   if (!site) return Response.json({ ok: false, error: "unknown site or bad token" }, { status: 401 });
 
   const ct = req.headers.get("content-type") ?? "";
@@ -22,7 +23,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ siteKey: strin
   const last = attr?.lt ?? attr?.ft ?? null;
   const spam = spamScore(body);
 
-  const [client] = await db.query.clients.findMany({ where: (c, { eq }) => eq(c.id, site.clientId), limit: 1 });
+  const [client] = await withRetry(() => db.query.clients.findMany({ where: (c, { eq }) => eq(c.id, site.clientId), limit: 1 }));
 
   const [lead] = await db.insert(schema.leads).values({
     clientId: site.clientId,
@@ -49,4 +50,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ siteKey: strin
 
   // TODO(phase 1): enqueue "new lead" email alert and backup-copy dedupe job.
   return Response.json({ ok: true, id: lead.id });
+}
+
+export async function POST(req: Request, ctx: { params: Promise<{ siteKey: string }> }) {
+  // Read the body now: it can't be read after we've answered the sender.
+  const copy = new Request(req.url, { method: "POST", headers: req.headers, body: await req.text() });
+  return respondWithin(4000, handle(copy, ctx));
 }
