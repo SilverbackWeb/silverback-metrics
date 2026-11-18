@@ -2,6 +2,7 @@
 import type { TrackedRow } from "@/lib/seo";
 import { scanStats, type latestScans } from "@/lib/heatmap";
 import { city } from "@/lib/locations";
+import { AutoRefresh } from "./AutoRefresh";
 import { addKeywords, checkNow, removeKeyword, runHeatmapNow, saveLocations } from "@/app/c/[clientId]/rank-actions";
 
 type Back = "seo" | "local";
@@ -121,9 +122,11 @@ export function HeatMap({ scans, selected, clientId, isAgency, canRun, e, when, 
         const st = scanStats(scan.points);
         const at = new Map(scan.points.map((p) => [`${p.row}:${p.col}`, p.rank]));
         const mid = (scan.gridSize - 1) / 2;
+        const pending = scan.status !== "done" && scan.status !== "failed" && Date.now() - scan.createdAt.getTime() < 3 * 3600e3;
         return (<>
+          {pending && <AutoRefresh seconds={15} />}
           <p className="vsub" style={{ margin: 0 }}><b>{scan.keyword}</b>{scan.location ? ` · around ${city(scan.location)}` : ""} · {when.format(scan.createdAt)}
-            {scan.status !== "done" && scan.status !== "failed" && ` · ${scan.points.length} of ${scan.gridSize ** 2} points in so far`}
+            {scan.status !== "done" && scan.status !== "failed" && ` · ${scan.points.length} of ${scan.gridSize ** 2} points in so far (gray dots are still loading; this page updates by itself)`}
             {scan.status === "failed" && ` · failed: ${scan.error ?? "unknown error"}`}</p>
           <div style={{ display: "grid", gridTemplateColumns: `repeat(${scan.gridSize}, minmax(0, 44px))`, gap: 6, justifyContent: "center", padding: "8px 0" }} role="img"
             aria-label={`Heat map: average Maps position ${st.avg ?? "unknown"}, top 3 at ${st.top3}% of points`}>
